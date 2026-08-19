@@ -82,10 +82,36 @@ const handleDemoFallback = (config: any) => {
     };
   }
 
-  // Analytics Dashboard
-  if (url === 'analytics/dashboard') {
+  // Analytics KPIs & Dashboard Telemetry
+  if (url === 'analytics/kpis' || url.startsWith('analytics/kpi') || url === 'analytics/dashboard') {
     return {
       data: {
+        kpis: {
+          totalRecords: 445,
+          totalFlags: 42,
+          highFlags: 8,
+          activeRules: 12,
+        },
+        charts: {
+          methods: [
+            { method: 'rule', count: 18 },
+            { method: 'ml', count: 14 },
+            { method: 'stat', count: 10 },
+          ],
+          severity: [
+            { name: 'Low', count: 14 },
+            { name: 'Medium', count: 20 },
+            { name: 'High', count: 8 },
+          ],
+          velocity: [
+            { date: 'Day 1', flagged: 18, resolved: 14 },
+            { date: 'Day 2', flagged: 12, resolved: 11 },
+            { date: 'Day 3', flagged: 8, resolved: 7 },
+            { date: 'Day 4', flagged: 4, resolved: 6 },
+            { date: 'Day 5', flagged: 6, resolved: 8 },
+          ],
+        },
+        recentFlags: DEMO_FLAGS.slice(0, 5),
         summary: {
           totalRecords: 445,
           totalBatches: 4,
@@ -120,6 +146,7 @@ const handleDemoFallback = (config: any) => {
       status: 200,
     };
   }
+
 
   // Batches
   if (url === 'batches') {

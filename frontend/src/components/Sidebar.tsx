@@ -45,10 +45,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed, setCollapsed }) => 
       }`}
     >
       {/* Brand Header */}
-      <div className="h-16 flex items-center justify-between px-4 border-b border-slate-800">
+      <div className={`h-16 flex items-center border-b border-slate-800 transition-all ${
+        collapsed ? 'justify-center px-2' : 'justify-between px-4'
+      }`}>
         <div className="flex items-center gap-3 overflow-hidden">
           <div className="w-10 h-10 min-w-[40px] rounded-xl bg-teal-600 text-white flex items-center justify-center shadow-xs">
-            <ShieldCheck className="w-5 h-5" />
+            <ShieldCheck className="w-5 h-5 text-white" />
           </div>
           {!collapsed && (
             <div className="truncate">
@@ -58,17 +60,27 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed, setCollapsed }) => 
           )}
         </div>
 
-        <button
-          onClick={() => setCollapsed(!collapsed)}
-          className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors"
-          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-        >
-          {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
-        </button>
+        {!collapsed ? (
+          <button
+            onClick={() => setCollapsed(true)}
+            className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors"
+            title="Collapse sidebar"
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+        ) : (
+          <button
+            onClick={() => setCollapsed(false)}
+            className="absolute -right-3 top-5 w-6 h-6 rounded-full bg-teal-600 hover:bg-teal-500 text-white flex items-center justify-center shadow-md border-2 border-slate-900 transition-transform hover:scale-110 z-40"
+            title="Expand sidebar"
+          >
+            <ChevronRight className="w-3.5 h-3.5" />
+          </button>
+        )}
       </div>
 
       {/* Navigation List */}
-      <nav className="flex-1 py-4 px-3 space-y-1.5 overflow-y-auto">
+      <nav className="flex-1 py-4 px-2 space-y-1.5 overflow-y-auto">
         {navItems.map((item) => {
           const Icon = item.icon;
           return (
@@ -76,7 +88,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed, setCollapsed }) => 
               key={item.path}
               to={item.path}
               className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all duration-150 group ${
+                `flex items-center gap-3 py-2.5 rounded-xl text-xs font-semibold transition-all duration-150 group ${
+                  collapsed ? 'justify-center px-0' : 'px-3'
+                } ${
                   isActive
                     ? 'bg-teal-600 text-white shadow-xs'
                     : 'text-slate-300 hover:bg-slate-800 hover:text-white'
@@ -84,12 +98,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ collapsed, setCollapsed }) => 
               }
               title={collapsed ? item.label : undefined}
             >
-              <Icon className="w-4 h-4 min-w-[16px] transition-transform group-hover:scale-105" />
+              <Icon className="w-5 h-5 min-w-[20px] transition-transform group-hover:scale-110" />
               {!collapsed && <span className="truncate">{item.label}</span>}
             </NavLink>
           );
         })}
       </nav>
+
 
       {/* User Status Bar */}
       <div className="p-3 border-t border-slate-800 bg-slate-950/60">
