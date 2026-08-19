@@ -1,0 +1,142 @@
+// Prisma schema for ISDVP (Intelligent Survey Data Validation Platform)
+// Datasource uses SQLite for zero-config local run, easily switchable to PostgreSQL
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model User {
+  id           String           @id @default(uuid())
+  email        String           @unique
+  passwordHash String
+  name         String
+  role         String           @default("viewer") // "admin" | "hsd_official" | "viewer"
+  createdAt    DateTime         @default(now())
+  
+  rulesCreated ValidationRule[]
+  flagsReviewed AnomalyFlag[]
+  reportsCreated Report[]
+}
+
+model SurveyBatch {
+  id           String         @id @default(uuid())
+  surveyName   String         // "PLFS" | "ASI" | "HCES"
+  quarter      String         // "Q1-2024" | "Q2-2024" etc.
+  month        String         // "Jan 2024", "Apr 2024" etc.
+  uploadSource String         // "api" | "batch"
+  recordCount  Int            @default(0)
+  status       String         @default("ingested") // "ingested" | "validated" | "flagged"
+  createdAt    DateTime       @default(now())
+
+  records      SurveyRecord[]
+  mlModels     MlModel[]
+  reports      Report[]
+}
+
+model SurveyRecord {
+  id           String        @id @default(uuid())
+  batchId      String
+  batch        SurveyBatch   @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  fileId       String        // e.g. "PLFS_2024_00123"
+  stateCode    String        // "07" (Delhi), "27" (Maharashtra), etc.
+  districtCode String        // "01", "14", etc.
+  hhSize       Int           // Household size: 1-12
+  hceTot       Float         // Household Consumer Expenditure Total (INR)
+  incTot       Float         // Total Income (INR)
+  sector       String        // "rural" | "urban"
+  enumeratorId String        // "ENUM_1042"
+  responseCode Int           // 1 = Normal, 2 = Reluctant, 3 = Estimated, 4 = Proxy
+  surDate      String        // "2024-03-15"
+  extraJson    String        @default("{}") // JSON-serialized auxiliary PLFS attributes
+
+  flags        AnomalyFlag[]
+
+  @@index([batchId])
+  @@index([stateCode])
+  @@index([enumeratorId])
+}
+
+model ValidationRule {
+  id          String        @id @default(uuid())
+  name        String
+  ruleType    String        // "referential" | "existential" | "range" | "cross_field"
+  fieldName   String        // "hceTot", "incTot", "hhSize", "surDate", "responseCode"
+  operator    String        // ">", "<", ">=", "<=", "==", "!=", "between", "ratio_gt", "not_null"
+  value       String        // Threshold value or comparison formula
+  severity    String        @default("medium") // "low" | "medium" | "high"
+  isActive    Boolean       @default(true)
+  createdById String
+  createdBy   User          @relation(fields: [createdById], references: [id])
+  createdAt   DateTime      @default(now())
+
+  flags       AnomalyFlag[]
+}
+
+model AnomalyFlag {
+  id              String        @id @default(uuid())
+  recordId        String
+  record          SurveyRecord  @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  ruleId          String?
+  rule            ValidationRule? @relation(fields: [ruleId], references: [id], onDelete: SetNull)
+  detectionMethod String        // "rule" | "statistical" | "ml"
+  anomalyScore    Float         // 0 - 100
+  severity        String        // "low" | "medium" | "high"
+  explanationText String        // SHAP-style plain-language reasoning
+  status          String        @default("open") // "open" | "reviewed" | "resolved" | "false_positive"
+  reviewedById    String?
+  reviewedBy      User?         @relation(fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedAt      DateTime?
+  createdAt       DateTime      @default(now())
+
+  @@index([recordId])
+  @@index([status])
+  @@index([severity])
+  @@index([detectionMethod])
+}
+
+model MlModel {
+  id               String       @id @default(uuid())
+  name             String
+  modelType        String       // "Isolation Forest" | "One-Class SVM" | "Bayesian Hierarchical" | "DBSCAN" | "ARIMA-Prophet" | "XGBoost" | "Autoencoder"
+  trainedOnBatchId String
+  trainedOnBatch   SurveyBatch  @relation(fields: [trainedOnBatchId], references: [id], onDelete: Cascade)
+  version          String       // "v1.0.4"
+  status           String       @default("training") // "training" | "active" | "archived"
+  accuracyMetric   Float        // e.g. 94.8%
+  createdAt        DateTime     @default(now())
+}
+
+model Report {
+  id            String       @id @default(uuid())
+  title         String
+  batchId       String
+  batch         SurveyBatch  @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  format        String       // "csv" | "pdf"
+  generatedById String
+  generatedBy   User         @relation(fields: [generatedById], references: [id])
+  generatedAt   DateTime     @default(now())
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  userId     String?
+  userEmail  String?
+  userName   String?
+  action     String   // "LOGIN", "LOGOUT", "UPLOAD_BATCH", "VIEW_RECORD", "EDIT_RECORD", "REVIEW_FLAG", "CREATE_RULE", "DELETE_RULE", "EXPORT_REPORT", "BACKUP_DB", "RESTORE_DB"
+  resource   String   // e.g. "SurveyRecord/123", "SurveyBatch/456"
+  status     String   @default("SUCCESS") // "SUCCESS" | "FAILED" | "DENIED"
+  ipAddress  String?
+  userAgent  String?
+  details    String?  // JSON metadata
+  timestamp  DateTime @default(now())
+
+  @@index([userId])
+  @@index([action])
+  @@index([timestamp])
+}
+
