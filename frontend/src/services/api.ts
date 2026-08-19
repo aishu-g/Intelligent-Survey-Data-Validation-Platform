@@ -298,6 +298,13 @@ const handleDemoFallback = (config: any) => {
     };
   }
 
+  // Auth: Current User Check
+  if (url === 'auth/me') {
+    const savedUserStr = localStorage.getItem('isdvp_user');
+    const user = savedUserStr ? JSON.parse(savedUserStr) : DEMO_USERS['admin@mospi.gov.in'].user;
+    return { data: { user }, status: 200 };
+  }
+
   return { data: { message: 'OK' }, status: 200 };
 };
 
@@ -305,9 +312,11 @@ const handleDemoFallback = (config: any) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    // If backend endpoint is 404 or network unreachable on static Vercel deployment:
     const status = error.response?.status;
-    if (!error.response || status === 404 || status === 502 || status === 503) {
+    const token = localStorage.getItem('isdvp_token');
+
+    // If backend is 404, network error, or if demo session is active, serve from demo store
+    if (!error.response || status === 404 || status === 502 || status === 503 || (status === 401 && token?.startsWith('demo-jwt-'))) {
       try {
         const fallbackRes = handleDemoFallback(error.config);
         return Promise.resolve(fallbackRes);
@@ -316,7 +325,7 @@ api.interceptors.response.use(
       }
     }
 
-    if (status === 401) {
+    if (status === 401 && !token?.startsWith('demo-jwt-')) {
       if (
         !window.location.pathname.startsWith('/login') &&
         !window.location.pathname.startsWith('/signup') &&
@@ -332,3 +341,4 @@ api.interceptors.response.use(
 );
 
 export default api;
+

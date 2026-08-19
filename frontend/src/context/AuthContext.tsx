@@ -6,8 +6,10 @@ export interface User {
   email: string;
   name: string;
   role: 'admin' | 'hsd_official' | 'viewer';
+  organization?: string;
   createdAt?: string;
 }
+
 
 interface AuthContextType {
   user: User | null;
@@ -31,16 +33,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     const verifyUser = async () => {
       const storedToken = localStorage.getItem('isdvp_token');
-      if (storedToken) {
+      const savedUserStr = localStorage.getItem('isdvp_user');
+      
+      if (storedToken && savedUserStr) {
         try {
-          const res = await api.get('/auth/me');
-          setUser(res.data.user);
-          localStorage.setItem('isdvp_user', JSON.stringify(res.data.user));
+          const parsedUser = JSON.parse(savedUserStr);
+          setUser(parsedUser);
+          setToken(storedToken);
+
+          if (!storedToken.startsWith('demo-jwt-')) {
+            const res = await api.get('/auth/me');
+            if (res.data?.user) {
+              setUser(res.data.user);
+              localStorage.setItem('isdvp_user', JSON.stringify(res.data.user));
+            }
+          }
         } catch (err) {
-          localStorage.removeItem('isdvp_token');
-          localStorage.removeItem('isdvp_user');
-          setUser(null);
-          setToken(null);
+          console.warn('Auth check fallback to stored session:', err);
         }
       }
       setLoading(false);
@@ -48,6 +57,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     verifyUser();
   }, []);
+
 
   const login = (newToken: string, newUser: User) => {
     localStorage.setItem('isdvp_token', newToken);
