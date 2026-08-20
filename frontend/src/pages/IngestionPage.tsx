@@ -47,16 +47,18 @@ export const IngestionPage: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
 
-  // CSV Import State
+  // CSV Import & Analysis State
   const [parsedCsvRecords, setParsedCsvRecords] = useState<any[]>([]);
   const [csvFileName, setCsvFileName] = useState<string>('');
   const [csvParseError, setCsvParseError] = useState<string>('');
+  const [csvAnalysisResult, setCsvAnalysisResult] = useState<any | null>(null);
 
   // Record Explorer State
   const [viewingBatch, setViewingBatch] = useState<any | null>(null);
   const [batchRecords, setBatchRecords] = useState<any[]>([]);
   const [recordsLoading, setRecordsLoading] = useState(false);
   const [recordSearch, setRecordSearch] = useState('');
+
 
 
   // OCR Studio State
@@ -384,16 +386,27 @@ export const IngestionPage: React.FC = () => {
   const handleCreateBatch = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
-    setStatusMessage('Ingesting and validating batch records...');
+    setStatusMessage('Ingesting and analyzing survey records with 4-tier engine...');
 
     try {
       if (newUploadSource === 'batch' && parsedCsvRecords.length > 0) {
-        await api.post('/batches/csv-upload', {
+        const res = await api.post('/batches/csv-upload', {
           surveyName: newSurveyName,
           quarter: newQuarter,
           month: newMonth,
           fileName: csvFileName || 'custom_survey_data.csv',
           records: parsedCsvRecords,
+        });
+
+        // Set CSV analysis results for popup modal
+        setCsvAnalysisResult({
+          fileName: csvFileName || 'custom_survey_data.csv',
+          surveyName: newSurveyName,
+          quarter: newQuarter,
+          recordsCount: res.data.recordsCount || parsedCsvRecords.length,
+          flagsCount: res.data.flagsCount || 0,
+          batchId: res.data.batchId,
+          flags: res.data.flags || [],
         });
       } else {
         await api.post('/batches', {
@@ -1411,6 +1424,164 @@ export const IngestionPage: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* CSV Survey Anomaly Analysis Report Modal */}
+      {csvAnalysisResult && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="w-full max-w-4xl rounded-2xl bg-white dark:bg-[#151A38] border border-slate-200 dark:border-slate-700 shadow-2xl p-6 text-slate-900 dark:text-slate-100 max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-150">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-700">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-teal-500/20 text-teal-600 dark:text-teal-400">
+                  <Sparkles className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-base flex items-center gap-2">
+                    <span>Survey Dataset Quality & Anomaly Analysis</span>
+                    <span className="text-xs px-2.5 py-0.5 rounded-full bg-teal-100 text-teal-800 dark:bg-teal-950/60 dark:text-teal-300 font-mono">
+                      {csvAnalysisResult.fileName}
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    Evaluated against 4-Tier validation layer (Deterministic rules, statistical distance, and Isolation Forest ML)
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setCsvAnalysisResult(null)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-200"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* KPI Summary Cards */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 my-4">
+              <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700">
+                <span className="text-[11px] font-semibold uppercase text-slate-500 block">Total Records</span>
+                <span className="text-2xl font-black text-slate-800 dark:text-white font-mono mt-1 block">
+                  {csvAnalysisResult.recordsCount}
+                </span>
+                <span className="text-[10px] text-slate-400">CSV Rows Parsed</span>
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800">
+                <span className="text-[11px] font-semibold uppercase text-emerald-700 dark:text-emerald-400 block">Clean Pass</span>
+                <span className="text-2xl font-black text-emerald-600 dark:text-emerald-400 font-mono mt-1 block">
+                  {Math.max(0, csvAnalysisResult.recordsCount - csvAnalysisResult.flagsCount)}
+                </span>
+                <span className="text-[10px] text-emerald-600 dark:text-emerald-400">
+                  {Math.round(((csvAnalysisResult.recordsCount - csvAnalysisResult.flagsCount) / Math.max(1, csvAnalysisResult.recordsCount)) * 100)}% Pass Rate
+                </span>
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800">
+                <span className="text-[11px] font-semibold uppercase text-rose-700 dark:text-rose-400 block">Anomalies Found</span>
+                <span className="text-2xl font-black text-rose-600 dark:text-rose-400 font-mono mt-1 block">
+                  {csvAnalysisResult.flagsCount}
+                </span>
+                <span className="text-[10px] text-rose-600 dark:text-rose-400">Requires Audit Triage</span>
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800">
+                <span className="text-[11px] font-semibold uppercase text-amber-700 dark:text-amber-400 block">Quality Score</span>
+                <span className="text-2xl font-black text-amber-600 dark:text-amber-400 font-mono mt-1 block">
+                  {Math.round(((csvAnalysisResult.recordsCount - csvAnalysisResult.flagsCount * 0.7) / Math.max(1, csvAnalysisResult.recordsCount)) * 100)}%
+                </span>
+                <span className="text-[10px] text-amber-600 dark:text-amber-400">Confidence Index</span>
+              </div>
+            </div>
+
+            {/* Detected Anomalies List */}
+            <div className="flex-1 overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-700">
+              <div className="bg-slate-100 dark:bg-[#12163B] p-3 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
+                <h4 className="font-bold text-xs text-slate-800 dark:text-white flex items-center gap-2">
+                  <ShieldAlert className="w-4 h-4 text-rose-500" />
+                  <span>Detected Anomaly Breakdown & SHAP Explanations ({csvAnalysisResult.flags.length})</span>
+                </h4>
+                <span className="text-[11px] text-slate-500">Sorted by Anomaly Risk Score</span>
+              </div>
+
+              {csvAnalysisResult.flags.length === 0 ? (
+                <div className="py-12 text-center text-slate-500 space-y-2">
+                  <CheckCircle className="w-8 h-8 text-emerald-500 mx-auto" />
+                  <p className="font-bold text-sm text-slate-800 dark:text-white">100% Clean Dataset!</p>
+                  <p className="text-xs text-slate-400">All uploaded CSV survey records passed all deterministic and ML baseline checks.</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-slate-100 dark:divide-slate-800/80">
+                  {csvAnalysisResult.flags.map((flag: any, idx: number) => (
+                    <div key={idx} className="p-3.5 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors space-y-1.5 text-xs">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono font-bold text-teal-600 dark:text-teal-400">
+                            {flag.record?.fileId || `Record #${idx + 1}`}
+                          </span>
+                          <span className="text-slate-500">
+                            (State: {flag.record?.stateCode}, Dist: {flag.record?.districtCode}, Size: {flag.record?.hhSize})
+                          </span>
+                          <span className={`px-2 py-0.2 rounded-full text-[10px] font-bold uppercase ${
+                            flag.detectionMethod === 'ml'
+                              ? 'bg-purple-100 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300'
+                              : 'bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300'
+                          }`}>
+                            {flag.detectionMethod === 'ml' ? 'Unsupervised ML' : 'Rule Violation'}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                            flag.severity === 'high'
+                              ? 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300'
+                              : flag.severity === 'medium'
+                              ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
+                              : 'bg-teal-100 text-teal-800 dark:bg-teal-950/60 dark:text-teal-300'
+                          }`}>
+                            {flag.severity} Risk
+                          </span>
+                          <span className="font-mono font-bold text-slate-700 dark:text-slate-300">
+                            Score: {flag.anomalyScore}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Explanation */}
+                      <p className="text-xs text-slate-700 dark:text-slate-200 bg-amber-50/60 dark:bg-slate-900/80 p-2.5 rounded-lg border border-amber-200/60 dark:border-slate-800">
+                        {flag.explanationText}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Action Footer */}
+            <div className="pt-4 mt-3 border-t border-slate-200 dark:border-slate-700 flex flex-wrap items-center justify-between gap-3">
+              <span className="text-xs text-slate-500">
+                Batch ID: <code className="font-mono text-slate-700 dark:text-slate-300">{csvAnalysisResult.batchId?.slice(0, 8)}...</code>
+              </span>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setCsvAnalysisResult(null)}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-colors"
+                >
+                  Done
+                </button>
+                <Link
+                  to="/app/flags"
+                  onClick={() => setCsvAnalysisResult(null)}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-teal-600 hover:bg-teal-700 text-white shadow-xs transition-colors"
+                >
+                  <span>Open Anomaly Flag Queue</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </Link>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
+
