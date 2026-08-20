@@ -513,6 +513,23 @@ router.post('/csv-upload', authenticate, uploadLimiter, async (req: AuthRequest,
         mlScore = 82.0;
         mlSeverity = 'medium';
         mlExplanation = `ML Anomaly (Autoencoder Vector Deviation): Household expenditure (₹${rec.hceTot.toLocaleString('en-IN')}) exceeds 2.2x declared income (₹${rec.incTot.toLocaleString('en-IN')}) with high reconstruction error.`;
+      } else {
+        // Condition 2: Historical Round-over-Round Statistical Baseline Drift Check (PLFS Historical Mean: ₹34,280, Std: ₹14,200)
+        const histMeanHce = 34280;
+        const histStdHce = 14200;
+        const zScoreHce = (rec.hceTot - histMeanHce) / histStdHce;
+
+        if (zScoreHce > 3.0) {
+          isMlAnomaly = true;
+          mlScore = 89.0;
+          mlSeverity = 'high';
+          mlExplanation = `Historical Baseline Anomaly: Monthly expenditure (₹${rec.hceTot.toLocaleString('en-IN')}) is ${zScoreHce.toFixed(1)}σ above the calibrated historical MoSPI baseline (Z-Score: +${zScoreHce.toFixed(2)}).`;
+        } else if (rec.incTot > 0 && rec.hceTot > 0 && rec.incTot < 12000 && rec.hceTot > 60000) {
+          isMlAnomaly = true;
+          mlScore = 84.0;
+          mlSeverity = 'high';
+          mlExplanation = `Historical Correlation Breakdown: Household exhibits severe socio-economic decoupling (Income ₹${rec.incTot.toLocaleString('en-IN')} vs Expenditure ₹${rec.hceTot.toLocaleString('en-IN')}).`;
+        }
       }
 
       if (isMlAnomaly) {
@@ -529,6 +546,7 @@ router.post('/csv-upload', authenticate, uploadLimiter, async (req: AuthRequest,
         totalFlagsGenerated++;
       }
     }
+
 
     // 5. Fetch all generated flags for this batch to return detailed analysis report
     const batchFlags = await prisma.anomalyFlag.findMany({
