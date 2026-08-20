@@ -1,15 +1,16 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, Sun, Moon, LogOut, User as UserIcon, Shield, ChevronDown } from 'lucide-react';
+import { Search, Sun, Moon, LogOut, User as UserIcon, Shield, ChevronDown, Menu } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { NotificationBell } from './NotificationBell';
 
 interface HeaderProps {
   onSearch?: (term: string) => void;
+  onToggleMobileSidebar?: () => void;
 }
 
-export const Header: React.FC<HeaderProps> = ({ onSearch }) => {
+export const Header: React.FC<HeaderProps> = ({ onSearch, onToggleMobileSidebar }) => {
   const { user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const [searchTerm, setSearchTerm] = useState('');
@@ -24,18 +25,30 @@ export const Header: React.FC<HeaderProps> = ({ onSearch }) => {
   };
 
   return (
-    <header className="h-16 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-4 sm:px-6 flex items-center justify-between transition-colors duration-200 z-20">
-      {/* Search Input Bar */}
-      <form onSubmit={handleSearchSubmit} className="relative w-72 sm:w-96">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-        <input
-          type="text"
-          placeholder="Search records, file IDs, enumerator..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="w-full pl-9 pr-4 py-1.5 text-xs rounded-lg bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-600 transition-all"
-        />
-      </form>
+    <header className="h-16 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-3 sm:px-6 flex items-center justify-between transition-colors duration-200 z-20 gap-2">
+      {/* Mobile Hamburger Menu Button */}
+      <div className="flex items-center gap-2">
+        <button
+          onClick={onToggleMobileSidebar}
+          className="md:hidden p-2 rounded-xl text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700"
+          title="Toggle Navigation Menu"
+        >
+          <Menu className="w-5 h-5 text-teal-600 dark:text-teal-400" />
+        </button>
+
+        {/* Search Input Bar */}
+        <form onSubmit={handleSearchSubmit} className="relative w-48 sm:w-72 md:w-80 lg:w-96">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <input
+            type="text"
+            placeholder="Search records, file IDs..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full pl-9 pr-3 py-1.5 text-xs rounded-lg bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-600 transition-all"
+          />
+        </form>
+      </div>
+
 
       {/* Right Controls */}
       <div className="flex items-center gap-3">

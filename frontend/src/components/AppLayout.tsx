@@ -7,6 +7,7 @@ import { useAuth } from '../context/AuthContext';
 export const AppLayout: React.FC = () => {
   const { user, loading } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   if (loading) {
     return (
@@ -25,12 +26,17 @@ export const AppLayout: React.FC = () => {
 
   return (
     <div className="min-h-screen flex bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 transition-colors duration-200">
-      {/* Collapsible Left Sidebar */}
-      <Sidebar collapsed={collapsed} setCollapsed={setCollapsed} />
+      {/* Collapsible / Responsive Left Sidebar */}
+      <Sidebar
+        collapsed={collapsed}
+        setCollapsed={setCollapsed}
+        mobileOpen={mobileOpen}
+        setMobileOpen={setMobileOpen}
+      />
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <Header />
+        <Header onToggleMobileSidebar={() => setMobileOpen(!mobileOpen)} />
         <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
           <div className="max-w-7xl mx-auto">
             <Outlet />
@@ -40,3 +46,4 @@ export const AppLayout: React.FC = () => {
     </div>
   );
 };
+
