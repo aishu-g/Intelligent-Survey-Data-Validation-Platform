@@ -125,12 +125,20 @@ export const DashboardPage: React.FC = () => {
       </div>
 
       {/* 4 Core Supervisor KPI Tiles */}
+      {/* 4 Core Supervisor KPI Tiles (Interactive Navigation Links) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* KPI 1: Total Records */}
-        <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs relative overflow-hidden">
+        {/* KPI 1: Total Records -> Ingestion & Batches */}
+        <Link
+          to="/app/ingestion"
+          id="kpi-total-records-card"
+          className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs hover:border-teal-500/70 hover:shadow-md transition-all group block relative overflow-hidden"
+          title="Click to view all ingested survey batches & records"
+        >
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Total Records</span>
-            <div className="p-2 rounded-xl bg-teal-50 dark:bg-teal-950/40 text-teal-700 dark:text-teal-300 border border-teal-100 dark:border-teal-800">
+            <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 group-hover:text-teal-600 dark:group-hover:text-teal-400 transition-colors">
+              Total Records
+            </span>
+            <div className="p-2 rounded-xl bg-teal-50 dark:bg-teal-950/40 text-teal-700 dark:text-teal-300 border border-teal-100 dark:border-teal-800 group-hover:scale-110 transition-transform">
               <FileSpreadsheet className="w-4 h-4" />
             </div>
           </div>
@@ -138,15 +146,25 @@ export const DashboardPage: React.FC = () => {
             <span className="text-3xl font-extrabold text-slate-900 dark:text-white">
               {totalRecords.toLocaleString('en-IN')}
             </span>
-            <span className="text-[11px] text-teal-700 dark:text-teal-400 block mt-1 font-medium">Ingested PLFS Batches</span>
+            <div className="flex items-center justify-between mt-1 text-[11px]">
+              <span className="text-teal-700 dark:text-teal-400 font-medium">Ingested PLFS Batches</span>
+              <span className="text-teal-600 dark:text-teal-400 font-bold opacity-0 group-hover:opacity-100 transition-opacity">View All →</span>
+            </div>
           </div>
-        </div>
+        </Link>
 
-        {/* KPI 2: Valid Records */}
-        <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs relative overflow-hidden">
+        {/* KPI 2: Valid Records -> Reports & Clean Data Export */}
+        <Link
+          to="/app/reports"
+          id="kpi-valid-records-card"
+          className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs hover:border-emerald-500/70 hover:shadow-md transition-all group block relative overflow-hidden"
+          title="Click to view validated clean records & export reports"
+        >
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Valid Records</span>
-            <div className="p-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-100 dark:border-emerald-800">
+            <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors">
+              Valid Records
+            </span>
+            <div className="p-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-100 dark:border-emerald-800 group-hover:scale-110 transition-transform">
               <CheckCircle2 className="w-4 h-4" />
             </div>
           </div>
@@ -154,17 +172,27 @@ export const DashboardPage: React.FC = () => {
             <span className="text-3xl font-extrabold text-emerald-700 dark:text-emerald-400">
               {validRecords.toLocaleString('en-IN')}
             </span>
-            <span className="text-[11px] text-emerald-600 dark:text-emerald-400 block mt-1 font-medium">
-              {totalRecords > 0 ? Math.round((validRecords / totalRecords) * 100) : 100}% Clean Pass Rate
-            </span>
+            <div className="flex items-center justify-between mt-1 text-[11px]">
+              <span className="text-emerald-600 dark:text-emerald-400 font-medium">
+                {totalRecords > 0 ? Math.round((validRecords / totalRecords) * 100) : 100}% Clean Pass Rate
+              </span>
+              <span className="text-emerald-600 dark:text-emerald-400 font-bold opacity-0 group-hover:opacity-100 transition-opacity">View Reports →</span>
+            </div>
           </div>
-        </div>
+        </Link>
 
-        {/* KPI 3: Flagged Records */}
-        <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs relative overflow-hidden">
+        {/* KPI 3: Flagged Records -> All Anomaly Flags */}
+        <Link
+          to="/app/flags?status=all"
+          id="kpi-flagged-records-card"
+          className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs hover:border-amber-500/70 hover:shadow-md transition-all group block relative overflow-hidden"
+          title="Click to open full anomaly flag queue"
+        >
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Flagged Records</span>
-            <div className="p-2 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-100 dark:border-amber-800">
+            <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 group-hover:text-amber-600 dark:group-hover:text-amber-400 transition-colors">
+              Flagged Records
+            </span>
+            <div className="p-2 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-100 dark:border-amber-800 group-hover:scale-110 transition-transform">
               <AlertTriangle className="w-4 h-4" />
             </div>
           </div>
@@ -172,15 +200,25 @@ export const DashboardPage: React.FC = () => {
             <span className="text-3xl font-extrabold text-amber-600 dark:text-amber-400">
               {totalFlags.toLocaleString('en-IN')}
             </span>
-            <span className="text-[11px] text-slate-500 dark:text-slate-400 block mt-1 font-medium">Multi-Layer Signals Detected</span>
+            <div className="flex items-center justify-between mt-1 text-[11px]">
+              <span className="text-slate-500 dark:text-slate-400 font-medium">Multi-Layer Signals Detected</span>
+              <span className="text-amber-600 dark:text-amber-400 font-bold opacity-0 group-hover:opacity-100 transition-opacity">Open Queue →</span>
+            </div>
           </div>
-        </div>
+        </Link>
 
-        {/* KPI 4: High-Risk Critical Records */}
-        <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs relative overflow-hidden">
+        {/* KPI 4: High-Risk Critical Records -> High Severity Anomaly Flags */}
+        <Link
+          to="/app/flags?severity=high&status=open"
+          id="kpi-high-risk-records-card"
+          className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs hover:border-red-500/70 hover:shadow-md transition-all group block relative overflow-hidden"
+          title="Click to triage critical high-risk records immediately"
+        >
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Critical High Risk</span>
-            <div className="p-2 rounded-xl bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 border border-red-100 dark:border-red-800">
+            <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 group-hover:text-red-600 dark:group-hover:text-red-400 transition-colors">
+              Critical High Risk
+            </span>
+            <div className="p-2 rounded-xl bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 border border-red-100 dark:border-red-800 group-hover:scale-110 transition-transform">
               <ShieldAlert className="w-4 h-4" />
             </div>
           </div>
@@ -188,10 +226,14 @@ export const DashboardPage: React.FC = () => {
             <span className="text-3xl font-extrabold text-red-700 dark:text-red-400">
               {highRiskFlags.toLocaleString('en-IN')}
             </span>
-            <span className="text-[11px] text-red-600 dark:text-red-400 block mt-1 font-medium">Score 80–100 · Immediate Action</span>
+            <div className="flex items-center justify-between mt-1 text-[11px]">
+              <span className="text-red-600 dark:text-red-400 font-medium">Score 80–100 · Immediate Action</span>
+              <span className="text-red-600 dark:text-red-400 font-bold opacity-0 group-hover:opacity-100 transition-opacity">Triage High Risk →</span>
+            </div>
           </div>
-        </div>
+        </Link>
       </div>
+
 
       {/* Analytics Grids */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

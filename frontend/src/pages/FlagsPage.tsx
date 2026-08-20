@@ -72,8 +72,18 @@ export const FlagsPage: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    const sevParam = searchParams.get('severity');
+    if (sevParam) setSeverity(sevParam);
+    const statusParam = searchParams.get('status');
+    if (statusParam) setStatus(statusParam);
+    const methodParam = searchParams.get('method');
+    if (methodParam) setMethod(methodParam);
+  }, [searchParams]);
+
+  useEffect(() => {
     fetchFlags();
   }, [severity, method, status, batchId]);
+
 
   const handleUpdateStatus = async (flagId: string, newStatus: string, notes?: string) => {
     try {
