@@ -25,6 +25,7 @@ import {
   ShieldCheck,
   Zap,
   HelpCircle,
+  Loader2,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import api from '../services/api';
@@ -51,7 +52,9 @@ export const IngestionPage: React.FC = () => {
   const [parsedCsvRecords, setParsedCsvRecords] = useState<any[]>([]);
   const [csvFileName, setCsvFileName] = useState<string>('');
   const [csvParseError, setCsvParseError] = useState<string>('');
+  const [csvParsing, setCsvParsing] = useState(false);
   const [csvAnalysisResult, setCsvAnalysisResult] = useState<any | null>(null);
+
 
   // Record Explorer State
   const [viewingBatch, setViewingBatch] = useState<any | null>(null);
@@ -303,65 +306,73 @@ export const IngestionPage: React.FC = () => {
     if (!file) return;
     setCsvFileName(file.name);
     setCsvParseError('');
+    setCsvParsing(true);
+    setParsedCsvRecords([]);
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const text = event.target?.result as string;
-        const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
-        if (lines.length < 2) {
-          setCsvParseError('CSV must contain a header row and at least one data row.');
-          return;
+    setTimeout(() => {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        try {
+          const text = event.target?.result as string;
+          const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
+          if (lines.length < 2) {
+            setCsvParseError('CSV must contain a header row and at least one data row.');
+            setCsvParsing(false);
+            return;
+          }
+
+          const headers = lines[0].split(',').map((h) => h.trim().replace(/^["']|["']$/g, '').toLowerCase());
+
+          const records = [];
+          for (let i = 1; i < lines.length; i++) {
+            const row = lines[i].split(',').map((c) => c.trim().replace(/^["']|["']$/g, ''));
+            if (row.length < 2) continue;
+
+            const obj: any = {};
+            headers.forEach((h, idx) => {
+              obj[h] = row[idx] || '';
+            });
+
+            // Smart column mapping for MoSPI PLFS / HCES datasets
+            const stateCode = obj.statecode || obj.state_code || obj.state || obj.st || '07';
+            const districtCode = obj.districtcode || obj.district_code || obj.district || obj.dist || '01';
+            const hhSize = parseInt(obj.hhsize || obj.household_size || obj.size || obj.members || '4', 10) || 4;
+            const hceTot = parseFloat(obj.hcetot || obj.expenditure || obj.consumption || obj.hce || obj.mpce || '25000') || 0;
+            const incTot = parseFloat(obj.inctot || obj.income || obj.inc || obj.earnings || '30000') || 0;
+            const sector = String(obj.sector || 'rural').toLowerCase().includes('urb') || obj.sector === '2' ? 'urban' : 'rural';
+            const enumeratorId = obj.enumeratorid || obj.enumerator_id || obj.enumerator || obj.enum || `ENUM_${1000 + (i % 20)}`;
+            const responseCode = parseInt(obj.responsecode || obj.response_code || '1', 10) || 1;
+            const surDate = obj.surdate || obj.sur_date || obj.date || new Date().toISOString().split('T')[0];
+
+            records.push({
+              fileId: obj.fileid || `CSV_${i}`,
+              stateCode: String(stateCode).padStart(2, '0'),
+              districtCode: String(districtCode).padStart(2, '0'),
+              hhSize,
+              hceTot,
+              incTot,
+              sector,
+              enumeratorId,
+              responseCode,
+              surDate,
+            });
+          }
+
+          if (records.length === 0) {
+            setCsvParseError('Could not parse any valid survey records from this CSV.');
+          } else {
+            setParsedCsvRecords(records);
+          }
+        } catch (err: any) {
+          setCsvParseError('Error parsing CSV: ' + err.message);
+        } finally {
+          setCsvParsing(false);
         }
-
-        const headers = lines[0].split(',').map((h) => h.trim().replace(/^["']|["']$/g, '').toLowerCase());
-
-        const records = [];
-        for (let i = 1; i < lines.length; i++) {
-          const row = lines[i].split(',').map((c) => c.trim().replace(/^["']|["']$/g, ''));
-          if (row.length < 2) continue;
-
-          const obj: any = {};
-          headers.forEach((h, idx) => {
-            obj[h] = row[idx] || '';
-          });
-
-          // Smart column mapping for MoSPI PLFS / HCES datasets
-          const stateCode = obj.statecode || obj.state_code || obj.state || obj.st || '07';
-          const districtCode = obj.districtcode || obj.district_code || obj.district || obj.dist || '01';
-          const hhSize = parseInt(obj.hhsize || obj.household_size || obj.size || obj.members || '4', 10) || 4;
-          const hceTot = parseFloat(obj.hcetot || obj.expenditure || obj.consumption || obj.hce || obj.mpce || '25000') || 0;
-          const incTot = parseFloat(obj.inctot || obj.income || obj.inc || obj.earnings || '30000') || 0;
-          const sector = String(obj.sector || 'rural').toLowerCase().includes('urb') || obj.sector === '2' ? 'urban' : 'rural';
-          const enumeratorId = obj.enumeratorid || obj.enumerator_id || obj.enumerator || obj.enum || `ENUM_${1000 + (i % 20)}`;
-          const responseCode = parseInt(obj.responsecode || obj.response_code || '1', 10) || 1;
-          const surDate = obj.surdate || obj.sur_date || obj.date || new Date().toISOString().split('T')[0];
-
-          records.push({
-            fileId: obj.fileid || `CSV_${i}`,
-            stateCode: String(stateCode).padStart(2, '0'),
-            districtCode: String(districtCode).padStart(2, '0'),
-            hhSize,
-            hceTot,
-            incTot,
-            sector,
-            enumeratorId,
-            responseCode,
-            surDate,
-          });
-        }
-
-        if (records.length === 0) {
-          setCsvParseError('Could not parse any valid survey records from this CSV.');
-        } else {
-          setParsedCsvRecords(records);
-        }
-      } catch (err: any) {
-        setCsvParseError('Error parsing CSV: ' + err.message);
-      }
-    };
-    reader.readAsText(file);
+      };
+      reader.readAsText(file);
+    }, 100);
   };
+
 
   const handleDownloadSampleCsv = () => {
     const sampleHeaders = 'fileId,stateCode,districtCode,hhSize,hceTot,incTot,sector,enumeratorId,responseCode,surDate\n';
@@ -1215,17 +1226,32 @@ export const IngestionPage: React.FC = () => {
                       </button>
                     </div>
 
-                    <label className="border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-teal-500 rounded-xl p-4 flex flex-col items-center justify-center cursor-pointer transition-colors bg-white dark:bg-slate-900">
-                      <UploadCloud className="w-8 h-8 text-teal-600 dark:text-teal-400 mb-1" />
-                      <span className="text-xs font-bold text-slate-800 dark:text-slate-100">
-                        {csvFileName ? `Selected: ${csvFileName}` : 'Click to Browse or Drag & Drop .CSV file'}
-                      </span>
-                      <span className="text-[10px] text-slate-500 mt-0.5">
-                        Supports standard MoSPI PLFS/HCES columns (stateCode, districtCode, hhSize, hceTot, incTot...)
-                      </span>
+                    <label className="border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-teal-500 rounded-xl p-4 flex flex-col items-center justify-center cursor-pointer transition-colors bg-white dark:bg-slate-900 min-h-[115px]">
+                      {csvParsing ? (
+                        <div className="flex flex-col items-center justify-center space-y-2 py-2 text-center">
+                          <Loader2 className="w-8 h-8 text-teal-500 animate-spin" />
+                          <span className="text-xs font-bold text-slate-800 dark:text-slate-100">
+                            Parsing & Validating Survey Dataset...
+                          </span>
+                          <span className="text-[10px] text-slate-500 font-mono">
+                            Reading records from {csvFileName}
+                          </span>
+                        </div>
+                      ) : (
+                        <>
+                          <UploadCloud className="w-8 h-8 text-teal-600 dark:text-teal-400 mb-1" />
+                          <span className="text-xs font-bold text-slate-800 dark:text-slate-100">
+                            {csvFileName ? `Selected: ${csvFileName}` : 'Click to Browse or Drag & Drop .CSV file'}
+                          </span>
+                          <span className="text-[10px] text-slate-500 mt-0.5">
+                            Supports standard MoSPI PLFS/HCES columns (stateCode, districtCode, hhSize, hceTot, incTot...)
+                          </span>
+                        </>
+                      )}
                       <input
                         type="file"
                         accept=".csv"
+                        disabled={csvParsing}
                         onChange={handleCsvFileChange}
                         className="hidden"
                       />
@@ -1238,7 +1264,7 @@ export const IngestionPage: React.FC = () => {
                       </div>
                     )}
 
-                    {parsedCsvRecords.length > 0 && (
+                    {parsedCsvRecords.length > 0 && !csvParsing && (
                       <div className="space-y-2">
                         <div className="flex items-center justify-between text-xs">
                           <span className="font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
@@ -1310,23 +1336,27 @@ export const IngestionPage: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  disabled={submitting}
+                  disabled={submitting || csvParsing}
                   id="submit-batch-btn"
                   className="px-6 py-2.5 rounded-xl text-xs font-black bg-teal-500 hover:bg-teal-400 text-slate-950 shadow-md shadow-teal-500/25 disabled:opacity-50 flex items-center gap-1.5 transition-transform active:scale-95"
                 >
-                  <span>
-                    {submitting
-                      ? 'Ingesting & Validating...'
-                      : parsedCsvRecords.length > 0
-                      ? `🚀 Launch Ingestion & Self-Training (${parsedCsvRecords.length.toLocaleString()} Records)`
-                      : '🚀 Launch Ingestion'}
-                  </span>
+                  {submitting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin text-slate-950" />
+                      <span>Ingesting & Validating ML Pipeline...</span>
+                    </>
+                  ) : parsedCsvRecords.length > 0 ? (
+                    <span>🚀 Launch Ingestion & Self-Training ({parsedCsvRecords.length.toLocaleString()} Records)</span>
+                  ) : (
+                    <span>🚀 Launch Ingestion</span>
+                  )}
                 </button>
               </div>
             </form>
           </div>
         </div>
       )}
+
 
 
 
