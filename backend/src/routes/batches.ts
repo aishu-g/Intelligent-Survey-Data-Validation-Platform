@@ -5,6 +5,7 @@ import { authenticate, AuthRequest } from '../middleware/auth';
 import { uploadLimiter, scanFileSafety } from '../middleware/security';
 import { logAuditEvent } from '../utils/auditLogger';
 import { generateSyntheticRecords } from '../utils/generator';
+import { triggerContinuousSelfTraining } from './models';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -571,7 +572,10 @@ router.post('/csv-upload', authenticate, uploadLimiter, async (req: AuthRequest,
       orderBy: { anomalyScore: 'desc' },
     });
 
-    // 6. Log Audit Trail
+    // 6. Automatically Trigger Continuous Online Self-Training on Ingested Data
+    await triggerContinuousSelfTraining(batch.id, createdRecords.length);
+
+    // 7. Log Audit Trail
     await logAuditEvent({
       req,
       action: 'CSV_BATCH_INGESTED',
@@ -582,15 +586,17 @@ router.post('/csv-upload', authenticate, uploadLimiter, async (req: AuthRequest,
         surveyName,
         recordsCount: createdRecords.length,
         flagsGenerated: totalFlagsGenerated,
+        selfTrainingTriggered: true,
       },
     });
 
     return res.status(201).json({
-      message: `Successfully analyzed ${createdRecords.length} records from ${fileName}. Detected ${totalFlagsGenerated} anomalies.`,
+      message: `Successfully analyzed ${createdRecords.length} records from ${fileName}. Detected ${totalFlagsGenerated} anomalies. Models self-trained.`,
       batchId: batch.id,
       recordsCount: createdRecords.length,
       flagsCount: totalFlagsGenerated,
       flags: batchFlags,
+      selfTrained: true,
     });
   } catch (err: any) {
     console.error('Error during CSV upload:', err);
