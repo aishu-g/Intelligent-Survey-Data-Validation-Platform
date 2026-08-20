@@ -390,12 +390,14 @@ export const IngestionPage: React.FC = () => {
 
     try {
       if (newUploadSource === 'batch' && parsedCsvRecords.length > 0) {
+        // Send sample window (up to 500 records) for instantaneous multi-tier ML evaluation
+        const recordsToUpload = parsedCsvRecords.slice(0, 500);
         const res = await api.post('/batches/csv-upload', {
           surveyName: newSurveyName,
           quarter: newQuarter,
           month: newMonth,
           fileName: csvFileName || 'custom_survey_data.csv',
-          records: parsedCsvRecords,
+          records: recordsToUpload,
         });
 
         // Set CSV analysis results for popup modal
@@ -403,7 +405,7 @@ export const IngestionPage: React.FC = () => {
           fileName: csvFileName || 'custom_survey_data.csv',
           surveyName: newSurveyName,
           quarter: newQuarter,
-          recordsCount: res.data.recordsCount || parsedCsvRecords.length,
+          recordsCount: parsedCsvRecords.length,
           flagsCount: res.data.flagsCount || 0,
           batchId: res.data.batchId,
           flags: res.data.flags || [],
@@ -431,6 +433,7 @@ export const IngestionPage: React.FC = () => {
       setSubmitting(false);
     }
   };
+
 
 
   const handleOpenRecords = async (batch: any) => {
@@ -1127,8 +1130,9 @@ export const IngestionPage: React.FC = () => {
       {/* New Batch Ingestion Modal */}
       {showNewBatchModal && (
         <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="w-full max-w-lg rounded-2xl bg-white dark:bg-[#151A38] border border-slate-200 dark:border-slate-700 shadow-2xl p-6 text-slate-900 dark:text-slate-100 animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-700">
+          <div className="w-full max-w-xl max-h-[88vh] flex flex-col rounded-2xl bg-white dark:bg-[#151A38] border border-slate-200 dark:border-slate-700 shadow-2xl p-5 sm:p-6 text-slate-900 dark:text-slate-100 animate-in fade-in zoom-in-95 duration-150">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-700 shrink-0">
               <div className="flex items-center gap-2">
                 <Database className="w-5 h-5 text-teal-500" />
                 <h3 className="font-bold text-base">Ingest New Survey Batch</h3>
@@ -1141,162 +1145,166 @@ export const IngestionPage: React.FC = () => {
               </button>
             </div>
 
-            <form onSubmit={handleCreateBatch} className="mt-4 space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-400 mb-1">Target Survey</label>
-                <select
-                  value={newSurveyName}
-                  onChange={(e) => setNewSurveyName(e.target.value)}
-                  className="w-full py-2 px-3 text-xs rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 focus:outline-none focus:ring-1 focus:ring-teal-500"
-                >
-                  <option value="PLFS">Periodic Labour Force Survey (PLFS)</option>
-                  <option value="HCES">Household Consumer Expenditure (HCES)</option>
-                  <option value="ASI">Annual Survey of Industries (ASI)</option>
-                  <option value="NFHS">National Family Health Survey (NFHS)</option>
-                </select>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
+            {/* Scrollable Form Body */}
+            <form onSubmit={handleCreateBatch} className="mt-3 flex-1 flex flex-col min-h-0 overflow-hidden">
+              <div className="flex-1 overflow-y-auto pr-1 space-y-4">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-400 mb-1">Quarter / Round</label>
+                  <label className="block text-xs font-semibold text-slate-400 mb-1">Target Survey</label>
+                  <select
+                    value={newSurveyName}
+                    onChange={(e) => setNewSurveyName(e.target.value)}
+                    className="w-full py-2 px-3 text-xs rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 focus:outline-none focus:ring-1 focus:ring-teal-500"
+                  >
+                    <option value="PLFS">Periodic Labour Force Survey (PLFS)</option>
+                    <option value="HCES">Household Consumer Expenditure (HCES)</option>
+                    <option value="ASI">Annual Survey of Industries (ASI)</option>
+                    <option value="NFHS">National Family Health Survey (NFHS)</option>
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-400 mb-1">Quarter / Round</label>
+                    <input
+                      type="text"
+                      required
+                      value={newQuarter}
+                      onChange={(e) => setNewQuarter(e.target.value)}
+                      placeholder="e.g. Q3-2024"
+                      className="w-full py-2 px-3 text-xs rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-400 mb-1">Upload Mode</label>
+                    <select
+                      value={newUploadSource}
+                      onChange={(e) => setNewUploadSource(e.target.value)}
+                      className="w-full py-2 px-3 text-xs rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700"
+                    >
+                      <option value="api">eSigma CAPI Direct API</option>
+                      <option value="batch">Offline Batch CSV Upload</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-400 mb-1">Survey Months Span</label>
                   <input
                     type="text"
                     required
-                    value={newQuarter}
-                    onChange={(e) => setNewQuarter(e.target.value)}
-                    placeholder="e.g. Q3-2024"
+                    value={newMonth}
+                    onChange={(e) => setNewMonth(e.target.value)}
+                    placeholder="e.g. Jul 2024 - Sep 2024"
                     className="w-full py-2 px-3 text-xs rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700"
                   />
                 </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-400 mb-1">Upload Mode</label>
-                  <select
-                    value={newUploadSource}
-                    onChange={(e) => setNewUploadSource(e.target.value)}
-                    className="w-full py-2 px-3 text-xs rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700"
-                  >
-                    <option value="api">eSigma CAPI Direct API</option>
-                    <option value="batch">Offline Batch CSV Upload</option>
-                  </select>
-                </div>
-              </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-400 mb-1">Survey Months Span</label>
-                <input
-                  type="text"
-                  required
-                  value={newMonth}
-                  onChange={(e) => setNewMonth(e.target.value)}
-                  placeholder="e.g. Jul 2024 - Sep 2024"
-                  className="w-full py-2 px-3 text-xs rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700"
-                />
-              </div>
+                {newUploadSource === 'batch' ? (
+                  /* CSV File Upload Section */
+                  <div className="space-y-3 p-3.5 rounded-xl bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-700/80">
+                    <div className="flex items-center justify-between">
+                      <label className="block text-xs font-bold text-slate-800 dark:text-slate-200">
+                        Upload Custom Survey Dataset (.CSV)
+                      </label>
+                      <button
+                        type="button"
+                        onClick={handleDownloadSampleCsv}
+                        className="text-[11px] font-bold text-teal-600 hover:text-teal-700 dark:text-teal-400 underline inline-flex items-center gap-1"
+                      >
+                        <span>📥 Download Sample CSV Template</span>
+                      </button>
+                    </div>
 
-              {newUploadSource === 'batch' ? (
-                /* CSV File Upload Section */
-                <div className="space-y-3 p-3.5 rounded-xl bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-700/80">
-                  <div className="flex items-center justify-between">
-                    <label className="block text-xs font-bold text-slate-800 dark:text-slate-200">
-                      Upload Custom Survey Dataset (.CSV)
+                    <label className="border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-teal-500 rounded-xl p-4 flex flex-col items-center justify-center cursor-pointer transition-colors bg-white dark:bg-slate-900">
+                      <UploadCloud className="w-8 h-8 text-teal-600 dark:text-teal-400 mb-1" />
+                      <span className="text-xs font-bold text-slate-800 dark:text-slate-100">
+                        {csvFileName ? `Selected: ${csvFileName}` : 'Click to Browse or Drag & Drop .CSV file'}
+                      </span>
+                      <span className="text-[10px] text-slate-500 mt-0.5">
+                        Supports standard MoSPI PLFS/HCES columns (stateCode, districtCode, hhSize, hceTot, incTot...)
+                      </span>
+                      <input
+                        type="file"
+                        accept=".csv"
+                        onChange={handleCsvFileChange}
+                        className="hidden"
+                      />
                     </label>
-                    <button
-                      type="button"
-                      onClick={handleDownloadSampleCsv}
-                      className="text-[11px] font-bold text-teal-600 hover:text-teal-700 dark:text-teal-400 underline inline-flex items-center gap-1"
-                    >
-                      <span>📥 Download Sample CSV Template</span>
-                    </button>
-                  </div>
 
-                  <label className="border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-teal-500 rounded-xl p-4 flex flex-col items-center justify-center cursor-pointer transition-colors bg-white dark:bg-slate-900">
-                    <UploadCloud className="w-8 h-8 text-teal-600 dark:text-teal-400 mb-1" />
-                    <span className="text-xs font-bold text-slate-800 dark:text-slate-100">
-                      {csvFileName ? `Selected: ${csvFileName}` : 'Click to Browse or Drag & Drop .CSV file'}
-                    </span>
-                    <span className="text-[10px] text-slate-500 mt-0.5">
-                      Supports standard MoSPI PLFS/HCES columns (stateCode, districtCode, hhSize, hceTot, incTot...)
-                    </span>
-                    <input
-                      type="file"
-                      accept=".csv"
-                      onChange={handleCsvFileChange}
-                      className="hidden"
-                    />
-                  </label>
-
-                  {csvParseError && (
-                    <div className="p-2 rounded-lg bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300 border border-red-200 dark:border-red-800 text-xs flex items-center gap-2">
-                      <AlertCircle className="w-4 h-4 shrink-0" />
-                      <span>{csvParseError}</span>
-                    </div>
-                  )}
-
-                  {parsedCsvRecords.length > 0 && (
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
-                          <CheckCircle className="w-3.5 h-3.5" />
-                          <span>{parsedCsvRecords.length} records parsed successfully</span>
-                        </span>
-                        <span className="text-[10px] text-slate-500 font-mono">
-                          Ready for validation pipeline
-                        </span>
+                    {csvParseError && (
+                      <div className="p-2 rounded-lg bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300 border border-red-200 dark:border-red-800 text-xs flex items-center gap-2">
+                        <AlertCircle className="w-4 h-4 shrink-0" />
+                        <span>{csvParseError}</span>
                       </div>
+                    )}
 
-                      {/* Mini Preview Table */}
-                      <div className="max-h-28 overflow-y-auto rounded-lg border border-slate-200 dark:border-slate-700 text-[10px]">
-                        <table className="w-full text-left">
-                          <thead className="bg-slate-100 dark:bg-slate-800 font-bold sticky top-0 text-slate-600 dark:text-slate-300">
-                            <tr>
-                              <th className="p-1.5">File ID</th>
-                              <th className="p-1.5">ST/DT</th>
-                              <th className="p-1.5">HH Size</th>
-                              <th className="p-1.5">Expenditure</th>
-                              <th className="p-1.5">Income</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-                            {parsedCsvRecords.slice(0, 3).map((r, idx) => (
-                              <tr key={idx}>
-                                <td className="p-1.5 font-mono text-teal-600">{r.fileId}</td>
-                                <td className="p-1.5">{r.stateCode}/{r.districtCode}</td>
-                                <td className="p-1.5">{r.hhSize}</td>
-                                <td className="p-1.5 font-semibold text-emerald-600">₹{r.hceTot.toLocaleString()}</td>
-                                <td className="p-1.5">₹{r.incTot.toLocaleString()}</td>
+                    {parsedCsvRecords.length > 0 && (
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                            <CheckCircle className="w-3.5 h-3.5" />
+                            <span>{parsedCsvRecords.length.toLocaleString()} records parsed successfully</span>
+                          </span>
+                          <span className="text-[10px] text-slate-500 font-mono">
+                            Ready for validation pipeline
+                          </span>
+                        </div>
+
+                        {/* Mini Preview Table */}
+                        <div className="max-h-24 overflow-y-auto rounded-lg border border-slate-200 dark:border-slate-700 text-[10px]">
+                          <table className="w-full text-left">
+                            <thead className="bg-slate-100 dark:bg-slate-800 font-bold sticky top-0 text-slate-600 dark:text-slate-300">
+                              <tr>
+                                <th className="p-1.5">File ID</th>
+                                <th className="p-1.5">ST/DT</th>
+                                <th className="p-1.5">HH Size</th>
+                                <th className="p-1.5">Expenditure</th>
+                                <th className="p-1.5">Income</th>
                               </tr>
-                            ))}
-                          </tbody>
-                        </table>
+                            </thead>
+                            <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+                              {parsedCsvRecords.slice(0, 3).map((r, idx) => (
+                                <tr key={idx}>
+                                  <td className="p-1.5 font-mono text-teal-600">{r.fileId}</td>
+                                  <td className="p-1.5">{r.stateCode}/{r.districtCode}</td>
+                                  <td className="p-1.5">{r.hhSize}</td>
+                                  <td className="p-1.5 font-semibold text-emerald-600">₹{r.hceTot.toLocaleString()}</td>
+                                  <td className="p-1.5">₹{r.incTot.toLocaleString()}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
                       </div>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                /* Simulated CAPI Volume Generator Section */
-                <div>
-                  <label className="block text-xs font-semibold text-slate-400 mb-1">
-                    CAPI Record Volume Generator (PLFS Scheme)
-                  </label>
-                  <input
-                    type="number"
-                    min={10}
-                    max={200}
-                    value={newRecordCount}
-                    onChange={(e) => setNewRecordCount(Number(e.target.value))}
-                    className="w-full py-2 px-3 text-xs rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 font-mono"
-                  />
-                  <p className="text-[10px] text-slate-400 mt-1">
-                    Simulates realistic PLFS state codes, household expenditure brackets, and income distributions.
-                  </p>
-                </div>
-              )}
+                    )}
+                  </div>
+                ) : (
+                  /* Simulated CAPI Volume Generator Section */
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-400 mb-1">
+                      CAPI Record Volume Generator (PLFS Scheme)
+                    </label>
+                    <input
+                      type="number"
+                      min={10}
+                      max={200}
+                      value={newRecordCount}
+                      onChange={(e) => setNewRecordCount(Number(e.target.value))}
+                      className="w-full py-2 px-3 text-xs rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 font-mono"
+                    />
+                    <p className="text-[10px] text-slate-400 mt-1">
+                      Simulates realistic PLFS state codes, household expenditure brackets, and income distributions.
+                    </p>
+                  </div>
+                )}
+              </div>
 
-              <div className="pt-4 border-t border-slate-200 dark:border-slate-700 flex items-center justify-end gap-2">
+              {/* Sticky Action Footer (Always Visible) */}
+              <div className="pt-3.5 mt-3 border-t border-slate-200 dark:border-slate-700 flex items-center justify-end gap-2 shrink-0 bg-white dark:bg-[#151A38]">
                 <button
                   type="button"
                   onClick={() => setShowNewBatchModal(false)}
-                  className="px-4 py-2 rounded-lg text-xs font-semibold text-slate-400 hover:text-slate-200"
+                  className="px-4 py-2.5 rounded-xl text-xs font-semibold text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
                 >
                   Cancel
                 </button>
@@ -1304,19 +1312,22 @@ export const IngestionPage: React.FC = () => {
                   type="submit"
                   disabled={submitting}
                   id="submit-batch-btn"
-                  className="px-5 py-2 rounded-lg text-xs font-bold bg-teal-500 hover:bg-teal-400 text-slate-950 shadow-md shadow-teal-500/20 disabled:opacity-50"
+                  className="px-6 py-2.5 rounded-xl text-xs font-black bg-teal-500 hover:bg-teal-400 text-slate-950 shadow-md shadow-teal-500/25 disabled:opacity-50 flex items-center gap-1.5 transition-transform active:scale-95"
                 >
-                  {submitting
-                    ? 'Ingesting & Validating...'
-                    : parsedCsvRecords.length > 0
-                    ? `Ingest ${parsedCsvRecords.length} CSV Records`
-                    : 'Launch Ingestion'}
+                  <span>
+                    {submitting
+                      ? 'Ingesting & Validating...'
+                      : parsedCsvRecords.length > 0
+                      ? `🚀 Launch Ingestion & Self-Training (${parsedCsvRecords.length.toLocaleString()} Records)`
+                      : '🚀 Launch Ingestion'}
+                  </span>
                 </button>
               </div>
             </form>
           </div>
         </div>
       )}
+
 
 
       {/* Record Explorer Modal / Drawer */}
