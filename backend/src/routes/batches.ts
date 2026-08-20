@@ -340,5 +340,173 @@ router.post('/ocr-ingest', authenticate, uploadLimiter, async (req: AuthRequest,
   }
 });
 
+// POST /api/batches/csv-upload (Custom CSV File Upload & Live Pipeline Evaluation)
+router.post('/csv-upload', authenticate, uploadLimiter, async (req: AuthRequest, res: Response) => {
+  try {
+    const {
+      surveyName = 'PLFS',
+      quarter = 'Q3-2024',
+      month = 'Jul 2024 - Sep 2024',
+      fileName = 'uploaded_data.csv',
+      records = [],
+    } = req.body;
+
+    if (!Array.isArray(records) || records.length === 0) {
+      return res.status(400).json({ error: 'No valid survey rows parsed from CSV' });
+    }
+
+    // 1. Create a dedicated Batch
+    const batch = await prisma.surveyBatch.create({
+      data: {
+        surveyName: surveyName as any,
+        quarter,
+        month,
+        uploadSource: 'batch',
+        recordCount: records.length,
+        status: 'ingested',
+      },
+    });
+
+    const baseTimestamp = Date.now();
+    const createdRecords = [];
+
+    // 2. Insert records from CSV
+    for (let i = 0; i < records.length; i++) {
+      const r = records[i];
+      const rec = await prisma.surveyRecord.create({
+        data: {
+          batchId: batch.id,
+          fileId: r.fileId || `CSV_${surveyName}_${baseTimestamp % 10000}_${i + 1}`,
+          stateCode: String(r.stateCode || '07'),
+          districtCode: String(r.districtCode || '01'),
+          hhSize: Math.max(1, parseInt(r.hhSize, 10) || 4),
+          hceTot: parseFloat(r.hceTot) || 0,
+          incTot: parseFloat(r.incTot) || 0,
+          sector: r.sector === 'rural' || String(r.sector).toLowerCase() === '1' ? 'rural' : 'urban',
+          enumeratorId: r.enumeratorId || 'ENUM_CSV_IMPORT',
+          responseCode: parseInt(r.responseCode, 10) || 1,
+          surDate: r.surDate || new Date().toISOString().split('T')[0],
+          extraJson: JSON.stringify({
+            ingestionSource: 'CSV_FILE_UPLOAD',
+            sourceFileName: fileName,
+            uploadedBy: req.user?.name || 'Authorized Officer',
+            uploadedAt: new Date().toISOString(),
+            rawRowIndex: i + 1,
+          }),
+        },
+      });
+      createdRecords.push(rec);
+    }
+
+    // 3. Automatically evaluate active validation rules on all newly ingested records
+    const activeRules = await prisma.validationRule.findMany({ where: { isActive: true } });
+    let totalFlagsGenerated = 0;
+
+    for (const rule of activeRules) {
+      for (const rec of createdRecords) {
+        let isViolated = false;
+        let explanation = '';
+        let score = 75.0;
+        const valNum = parseFloat(rule.value);
+
+        switch (rule.operator) {
+          case '>':
+            if (rule.fieldName === 'hceTot' && rec.hceTot > valNum) {
+              isViolated = true;
+              explanation = `Rule Violation: Consumer Expenditure ₹${rec.hceTot.toLocaleString('en-IN')} exceeds defined threshold > ₹${valNum.toLocaleString('en-IN')}`;
+              score = 82.0;
+            } else if (rule.fieldName === 'hhSize' && rec.hhSize > valNum) {
+              isViolated = true;
+              explanation = `Rule Violation: Household size (${rec.hhSize}) exceeds maximum limit ${valNum}`;
+              score = 70.0;
+            } else if (rule.fieldName === 'incTot' && rec.incTot > valNum) {
+              isViolated = true;
+              explanation = `Rule Violation: Declared Income ₹${rec.incTot.toLocaleString('en-IN')} exceeds threshold > ₹${valNum.toLocaleString('en-IN')}`;
+              score = 75.0;
+            }
+            break;
+          case '<':
+          case '<=':
+            if (rule.fieldName === 'incTot' && rec.incTot <= valNum) {
+              isViolated = true;
+              explanation = `Rule Violation: Negative or zero income declared (₹${rec.incTot.toLocaleString('en-IN')}) while household has active expenditure.`;
+              score = 95.0;
+            } else if (rule.fieldName === 'hhSize' && rec.hhSize <= valNum) {
+              isViolated = true;
+              explanation = `Rule Violation: Invalid household member count (${rec.hhSize} <= ${valNum}).`;
+              score = 90.0;
+            }
+            break;
+          case 'ratio_gt_inc_3':
+          case 'ratio_gt':
+            const ratioLimit = !isNaN(valNum) ? valNum : 3.0;
+            if (rec.incTot > 0 && rec.hceTot > rec.incTot * ratioLimit) {
+              isViolated = true;
+              const ratio = (rec.hceTot / rec.incTot).toFixed(1);
+              explanation = `Cross-Field Discrepancy: Monthly expenditure (₹${rec.hceTot.toLocaleString('en-IN')}) is ${ratio}x higher than declared income (₹${rec.incTot.toLocaleString('en-IN')}).`;
+              score = 93.0;
+            }
+            break;
+          case 'proxy_high_income':
+          case '==':
+            if (rule.fieldName === 'responseCode' && rec.responseCode === 4 && rec.incTot > 50000) {
+              isViolated = true;
+              explanation = `Cross-Field Check: Proxy respondent (Code 4) providing high-bracket income declaration (₹${rec.incTot.toLocaleString('en-IN')}).`;
+              score = 76.0;
+            }
+            break;
+          case 'single_huge_hce':
+            if (rec.hhSize === 1 && rec.hceTot > 100000) {
+              isViolated = true;
+              explanation = `Cross-Field Anomaly: Single-resident household reporting exceptional monthly consumer expenditure ₹${rec.hceTot.toLocaleString('en-IN')}.`;
+              score = 72.0;
+            }
+            break;
+        }
+
+        if (isViolated) {
+          await prisma.anomalyFlag.create({
+            data: {
+              recordId: rec.id,
+              ruleId: rule.id,
+              detectionMethod: 'rule',
+              anomalyScore: score,
+              severity: rule.severity,
+              explanationText: explanation,
+              status: 'open',
+            },
+          });
+          totalFlagsGenerated++;
+        }
+      }
+    }
+
+    // 4. Log Audit Trail
+    await logAuditEvent({
+      req,
+      action: 'CSV_BATCH_INGESTED',
+      resource: `SurveyBatch/${batch.id}`,
+      status: 'SUCCESS',
+      details: {
+        fileName,
+        surveyName,
+        recordsCount: createdRecords.length,
+        flagsGenerated: totalFlagsGenerated,
+      },
+    });
+
+    return res.status(201).json({
+      message: `Successfully ingested ${createdRecords.length} records from ${fileName}. Generated ${totalFlagsGenerated} quality flags.`,
+      batchId: batch.id,
+      recordsCount: createdRecords.length,
+      flagsCount: totalFlagsGenerated,
+    });
+  } catch (err: any) {
+    console.error('Error during CSV upload:', err);
+    return res.status(500).json({ error: 'Failed to ingest CSV records' });
+  }
+});
+
 export default router;
+
 

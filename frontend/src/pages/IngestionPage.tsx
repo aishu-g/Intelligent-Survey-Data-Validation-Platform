@@ -47,11 +47,17 @@ export const IngestionPage: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
 
+  // CSV Import State
+  const [parsedCsvRecords, setParsedCsvRecords] = useState<any[]>([]);
+  const [csvFileName, setCsvFileName] = useState<string>('');
+  const [csvParseError, setCsvParseError] = useState<string>('');
+
   // Record Explorer State
   const [viewingBatch, setViewingBatch] = useState<any | null>(null);
   const [batchRecords, setBatchRecords] = useState<any[]>([]);
   const [recordsLoading, setRecordsLoading] = useState(false);
   const [recordSearch, setRecordSearch] = useState('');
+
 
   // OCR Studio State
   const ocrPresets = [
@@ -290,30 +296,129 @@ export const IngestionPage: React.FC = () => {
     fetchBatches();
   }, [filterSurvey, filterStatus]);
 
+  const handleCsvFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setCsvFileName(file.name);
+    setCsvParseError('');
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const text = event.target?.result as string;
+        const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
+        if (lines.length < 2) {
+          setCsvParseError('CSV must contain a header row and at least one data row.');
+          return;
+        }
+
+        const headers = lines[0].split(',').map((h) => h.trim().replace(/^["']|["']$/g, '').toLowerCase());
+
+        const records = [];
+        for (let i = 1; i < lines.length; i++) {
+          const row = lines[i].split(',').map((c) => c.trim().replace(/^["']|["']$/g, ''));
+          if (row.length < 2) continue;
+
+          const obj: any = {};
+          headers.forEach((h, idx) => {
+            obj[h] = row[idx] || '';
+          });
+
+          // Smart column mapping for MoSPI PLFS / HCES datasets
+          const stateCode = obj.statecode || obj.state_code || obj.state || obj.st || '07';
+          const districtCode = obj.districtcode || obj.district_code || obj.district || obj.dist || '01';
+          const hhSize = parseInt(obj.hhsize || obj.household_size || obj.size || obj.members || '4', 10) || 4;
+          const hceTot = parseFloat(obj.hcetot || obj.expenditure || obj.consumption || obj.hce || obj.mpce || '25000') || 0;
+          const incTot = parseFloat(obj.inctot || obj.income || obj.inc || obj.earnings || '30000') || 0;
+          const sector = String(obj.sector || 'rural').toLowerCase().includes('urb') || obj.sector === '2' ? 'urban' : 'rural';
+          const enumeratorId = obj.enumeratorid || obj.enumerator_id || obj.enumerator || obj.enum || `ENUM_${1000 + (i % 20)}`;
+          const responseCode = parseInt(obj.responsecode || obj.response_code || '1', 10) || 1;
+          const surDate = obj.surdate || obj.sur_date || obj.date || new Date().toISOString().split('T')[0];
+
+          records.push({
+            fileId: obj.fileid || `CSV_${i}`,
+            stateCode: String(stateCode).padStart(2, '0'),
+            districtCode: String(districtCode).padStart(2, '0'),
+            hhSize,
+            hceTot,
+            incTot,
+            sector,
+            enumeratorId,
+            responseCode,
+            surDate,
+          });
+        }
+
+        if (records.length === 0) {
+          setCsvParseError('Could not parse any valid survey records from this CSV.');
+        } else {
+          setParsedCsvRecords(records);
+        }
+      } catch (err: any) {
+        setCsvParseError('Error parsing CSV: ' + err.message);
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const handleDownloadSampleCsv = () => {
+    const sampleHeaders = 'fileId,stateCode,districtCode,hhSize,hceTot,incTot,sector,enumeratorId,responseCode,surDate\n';
+    const sampleRows = [
+      'PLFS_001,09,28,4,28500,34000,rural,ENUM_1042,1,2024-08-10',
+      'PLFS_002,27,21,5,42000,56000,urban,ENUM_3044,1,2024-08-11',
+      'PLFS_003,10,05,3,18500,22000,rural,ENUM_2019,1,2024-08-12',
+      'PLFS_004,29,15,1,125000,20000,urban,ENUM_4102,1,2024-08-13',
+      'PLFS_005,33,02,4,31000,45000,urban,ENUM_5199,1,2024-08-14',
+    ].join('\n');
+
+    const blob = new Blob([sampleHeaders + sampleRows], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', 'sample_mospi_plfs_template.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const handleCreateBatch = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
     setStatusMessage('Ingesting and validating batch records...');
 
     try {
-      await api.post('/batches', {
-        surveyName: newSurveyName,
-        quarter: newQuarter,
-        month: newMonth,
-        uploadSource: newUploadSource,
-        initialRecordCount: Number(newRecordCount),
-      });
+      if (newUploadSource === 'batch' && parsedCsvRecords.length > 0) {
+        await api.post('/batches/csv-upload', {
+          surveyName: newSurveyName,
+          quarter: newQuarter,
+          month: newMonth,
+          fileName: csvFileName || 'custom_survey_data.csv',
+          records: parsedCsvRecords,
+        });
+      } else {
+        await api.post('/batches', {
+          surveyName: newSurveyName,
+          quarter: newQuarter,
+          month: newMonth,
+          uploadSource: newUploadSource,
+          initialRecordCount: Number(newRecordCount),
+        });
+      }
 
       setShowNewBatchModal(false);
+      setParsedCsvRecords([]);
+      setCsvFileName('');
+      setCsvParseError('');
       setStatusMessage('');
       await fetchBatches();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to create batch:', err);
-      setStatusMessage('Error creating batch');
+      setStatusMessage(err.response?.data?.error || 'Error creating batch');
     } finally {
       setSubmitting(false);
     }
   };
+
 
   const handleOpenRecords = async (batch: any) => {
     setViewingBatch(batch);
@@ -1075,22 +1180,104 @@ export const IngestionPage: React.FC = () => {
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-400 mb-1">
-                  Synthetic Record Volume Generator (PLFS Scheme)
-                </label>
-                <input
-                  type="number"
-                  min={10}
-                  max={200}
-                  value={newRecordCount}
-                  onChange={(e) => setNewRecordCount(Number(e.target.value))}
-                  className="w-full py-2 px-3 text-xs rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 font-mono"
-                />
-                <p className="text-[10px] text-slate-400 mt-1">
-                  Simulates realistic PLFS state codes, household expenditure brackets, and income distributions.
-                </p>
-              </div>
+              {newUploadSource === 'batch' ? (
+                /* CSV File Upload Section */
+                <div className="space-y-3 p-3.5 rounded-xl bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-700/80">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-bold text-slate-800 dark:text-slate-200">
+                      Upload Custom Survey Dataset (.CSV)
+                    </label>
+                    <button
+                      type="button"
+                      onClick={handleDownloadSampleCsv}
+                      className="text-[11px] font-bold text-teal-600 hover:text-teal-700 dark:text-teal-400 underline inline-flex items-center gap-1"
+                    >
+                      <span>📥 Download Sample CSV Template</span>
+                    </button>
+                  </div>
+
+                  <label className="border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-teal-500 rounded-xl p-4 flex flex-col items-center justify-center cursor-pointer transition-colors bg-white dark:bg-slate-900">
+                    <UploadCloud className="w-8 h-8 text-teal-600 dark:text-teal-400 mb-1" />
+                    <span className="text-xs font-bold text-slate-800 dark:text-slate-100">
+                      {csvFileName ? `Selected: ${csvFileName}` : 'Click to Browse or Drag & Drop .CSV file'}
+                    </span>
+                    <span className="text-[10px] text-slate-500 mt-0.5">
+                      Supports standard MoSPI PLFS/HCES columns (stateCode, districtCode, hhSize, hceTot, incTot...)
+                    </span>
+                    <input
+                      type="file"
+                      accept=".csv"
+                      onChange={handleCsvFileChange}
+                      className="hidden"
+                    />
+                  </label>
+
+                  {csvParseError && (
+                    <div className="p-2 rounded-lg bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300 border border-red-200 dark:border-red-800 text-xs flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 shrink-0" />
+                      <span>{csvParseError}</span>
+                    </div>
+                  )}
+
+                  {parsedCsvRecords.length > 0 && (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                          <CheckCircle className="w-3.5 h-3.5" />
+                          <span>{parsedCsvRecords.length} records parsed successfully</span>
+                        </span>
+                        <span className="text-[10px] text-slate-500 font-mono">
+                          Ready for validation pipeline
+                        </span>
+                      </div>
+
+                      {/* Mini Preview Table */}
+                      <div className="max-h-28 overflow-y-auto rounded-lg border border-slate-200 dark:border-slate-700 text-[10px]">
+                        <table className="w-full text-left">
+                          <thead className="bg-slate-100 dark:bg-slate-800 font-bold sticky top-0 text-slate-600 dark:text-slate-300">
+                            <tr>
+                              <th className="p-1.5">File ID</th>
+                              <th className="p-1.5">ST/DT</th>
+                              <th className="p-1.5">HH Size</th>
+                              <th className="p-1.5">Expenditure</th>
+                              <th className="p-1.5">Income</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+                            {parsedCsvRecords.slice(0, 3).map((r, idx) => (
+                              <tr key={idx}>
+                                <td className="p-1.5 font-mono text-teal-600">{r.fileId}</td>
+                                <td className="p-1.5">{r.stateCode}/{r.districtCode}</td>
+                                <td className="p-1.5">{r.hhSize}</td>
+                                <td className="p-1.5 font-semibold text-emerald-600">₹{r.hceTot.toLocaleString()}</td>
+                                <td className="p-1.5">₹{r.incTot.toLocaleString()}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                /* Simulated CAPI Volume Generator Section */
+                <div>
+                  <label className="block text-xs font-semibold text-slate-400 mb-1">
+                    CAPI Record Volume Generator (PLFS Scheme)
+                  </label>
+                  <input
+                    type="number"
+                    min={10}
+                    max={200}
+                    value={newRecordCount}
+                    onChange={(e) => setNewRecordCount(Number(e.target.value))}
+                    className="w-full py-2 px-3 text-xs rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 font-mono"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    Simulates realistic PLFS state codes, household expenditure brackets, and income distributions.
+                  </p>
+                </div>
+              )}
 
               <div className="pt-4 border-t border-slate-200 dark:border-slate-700 flex items-center justify-end gap-2">
                 <button
@@ -1106,13 +1293,18 @@ export const IngestionPage: React.FC = () => {
                   id="submit-batch-btn"
                   className="px-5 py-2 rounded-lg text-xs font-bold bg-teal-500 hover:bg-teal-400 text-slate-950 shadow-md shadow-teal-500/20 disabled:opacity-50"
                 >
-                  {submitting ? 'Generating & Ingesting...' : 'Launch Ingestion'}
+                  {submitting
+                    ? 'Ingesting & Validating...'
+                    : parsedCsvRecords.length > 0
+                    ? `Ingest ${parsedCsvRecords.length} CSV Records`
+                    : 'Launch Ingestion'}
                 </button>
               </div>
             </form>
           </div>
         </div>
       )}
+
 
       {/* Record Explorer Modal / Drawer */}
       {viewingBatch && (
