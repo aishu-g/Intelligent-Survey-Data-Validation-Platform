@@ -15,11 +15,22 @@ import {
   X,
   ArrowRight,
   ShieldAlert,
+  FileText,
+  Scan,
+  CheckSquare,
+  Edit3,
+  Camera,
+  UploadCloud,
+  Check,
+  ShieldCheck,
+  Zap,
+  HelpCircle,
 } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import api from '../services/api';
 
 export const IngestionPage: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'current' | 'historical'>('current');
+  const [activeTab, setActiveTab] = useState<'current' | 'historical' | 'ocr'>('current');
   const [batches, setBatches] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterSurvey, setFilterSurvey] = useState('all');
@@ -41,6 +52,197 @@ export const IngestionPage: React.FC = () => {
   const [batchRecords, setBatchRecords] = useState<any[]>([]);
   const [recordsLoading, setRecordsLoading] = useState(false);
   const [recordSearch, setRecordSearch] = useState('');
+
+  // OCR Studio State
+  const ocrPresets = [
+    {
+      id: 'plfs_rural_clean',
+      title: 'MoSPI PLFS Schedule 10.2 (Rural UP / Hardoi)',
+      surveyName: 'PLFS',
+      quarter: 'Q3-2024',
+      month: 'Jul 2024 - Sep 2024',
+      description: 'Clean handwritten survey with standard rural agrarian income & consumer expenditure.',
+      sourceType: 'Field Schedule 10.2 - Form A',
+      rawImageName: 'plfs_schedule_hardoi_0928.png',
+      scanNote: 'Legible blue ink handwriting on standard NSO paper schedule.',
+      expectedResult: 'Clean / Passes all deterministic & probabilistic baseline checks',
+      fields: {
+        stateCode: '09',
+        districtCode: '28',
+        hhSize: 4,
+        hceTot: 24500,
+        incTot: 32000,
+        sector: 'rural' as const,
+        enumeratorId: 'ENUM_1042',
+        responseCode: 1,
+        surDate: '2024-08-14',
+      },
+      confidences: {
+        stateCode: 98,
+        districtCode: 95,
+        hhSize: 96,
+        hceTot: 92,
+        incTot: 90,
+        sector: 99,
+        enumeratorId: 97,
+      },
+    },
+    {
+      id: 'hces_urban_anomaly',
+      title: 'MoSPI HCES Paper Schedule (Urban Thane) — Outlier Anomaly',
+      surveyName: 'HCES',
+      quarter: 'Q3-2024',
+      month: 'Jul 2024 - Sep 2024',
+      description: 'Single-resident household with high expenditure (₹1,35,000) vs low income (₹22,000).',
+      sourceType: 'HCES Consumer Schedule 1.0',
+      rawImageName: 'hces_paper_thane_2721.png',
+      scanNote: 'Slightly faded cursive digits in expenditure column (confidence: 79%).',
+      expectedResult: 'Triggers Ratio > 3x & Single-resident High Expenditure Flags in Stage 2 & 3',
+      fields: {
+        stateCode: '27',
+        districtCode: '21',
+        hhSize: 1,
+        hceTot: 135000,
+        incTot: 22000,
+        sector: 'urban' as const,
+        enumeratorId: 'ENUM_3044',
+        responseCode: 1,
+        surDate: '2024-08-16',
+      },
+      confidences: {
+        stateCode: 96,
+        districtCode: 94,
+        hhSize: 98,
+        hceTot: 79, // Amber flag
+        incTot: 86,
+        sector: 99,
+        enumeratorId: 95,
+      },
+    },
+    {
+      id: 'plfs_heaping_sample',
+      title: 'MoSPI PLFS Field Sheet (Bihar / Muzaffarpur) — Digit Heaping',
+      surveyName: 'PLFS',
+      quarter: 'Q3-2024',
+      month: 'Jul 2024 - Sep 2024',
+      description: 'Suspicious rounded digits (₹50,000 inc / ₹25,000 exp) indicating enumerator estimation.',
+      sourceType: 'Field Schedule 10.2 - Form B',
+      rawImageName: 'plfs_paper_bihar_1005.png',
+      scanNote: 'Rounded terminal digits 000. Potential enumerator estimation bias.',
+      expectedResult: 'Ingests successfully and contributes to Enumerator Digit Heaping Index',
+      fields: {
+        stateCode: '10',
+        districtCode: '05',
+        hhSize: 5,
+        hceTot: 25000,
+        incTot: 50000,
+        sector: 'rural' as const,
+        enumeratorId: 'ENUM_2019',
+        responseCode: 1,
+        surDate: '2024-08-18',
+      },
+      confidences: {
+        stateCode: 99,
+        districtCode: 97,
+        hhSize: 94,
+        hceTot: 95,
+        incTot: 96,
+        sector: 98,
+        enumeratorId: 96,
+      },
+    },
+  ];
+
+  const [selectedPresetId, setSelectedPresetId] = useState('plfs_rural_clean');
+  const activePreset = ocrPresets.find((p) => p.id === selectedPresetId) || ocrPresets[0];
+
+  const [ocrScanning, setOcrScanning] = useState(false);
+  const [ocrProgress, setOcrProgress] = useState(100);
+  const [customImageName, setCustomImageName] = useState<string | null>(null);
+
+  // Editable digitized fields
+  const [editableFields, setEditableFields] = useState(activePreset.fields);
+  const [confidences, setConfidences] = useState(activePreset.confidences);
+  const [humanVerified, setHumanVerified] = useState(true);
+  const [verifierNotes, setVerifierNotes] = useState('All handwritten entries cross-verified against paper schedule header.');
+  const [ocrIngestStatus, setOcrIngestStatus] = useState<{ success: boolean; message: string; flagsCount?: number; batchId?: string } | null>(null);
+  const [ocrSubmitting, setOcrSubmitting] = useState(false);
+
+  // Sync preset changes
+  const handleSelectPreset = (presetId: string) => {
+    setSelectedPresetId(presetId);
+    const p = ocrPresets.find((item) => item.id === presetId) || ocrPresets[0];
+    setCustomImageName(null);
+    setEditableFields(p.fields);
+    setConfidences(p.confidences);
+    setHumanVerified(true);
+    setOcrIngestStatus(null);
+  };
+
+  const handleSimulateScan = () => {
+    setOcrScanning(true);
+    setOcrProgress(15);
+    setOcrIngestStatus(null);
+
+    setTimeout(() => setOcrProgress(45), 300);
+    setTimeout(() => setOcrProgress(75), 700);
+    setTimeout(() => {
+      setOcrProgress(100);
+      setOcrScanning(false);
+    }, 1100);
+  };
+
+  const handleCustomFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setCustomImageName(file.name);
+      handleSimulateScan();
+    }
+  };
+
+  const handleOcrIngestToPipeline = async () => {
+    setOcrSubmitting(true);
+    try {
+      const res = await api.post('/batches/ocr-ingest', {
+        surveyName: activePreset.surveyName,
+        quarter: activePreset.quarter,
+        month: activePreset.month,
+        records: [
+          {
+            ...editableFields,
+            rawImageName: customImageName || activePreset.rawImageName,
+            ocrConfidence: Math.round(
+              Object.values(confidences).reduce((a, b) => a + b, 0) / Object.values(confidences).length
+            ),
+            fieldsConfidence: confidences,
+          },
+        ],
+        metadata: {
+          imageName: customImageName || activePreset.rawImageName,
+          verifiedBy: 'HSD Officer',
+          verifierNotes,
+        },
+      });
+
+      setOcrIngestStatus({
+        success: true,
+        message: res.data.message || 'Successfully ingested handwritten schedule into the validation pipeline!',
+        flagsCount: res.data.flagsCount || 0,
+        batchId: res.data.batchId,
+      });
+
+      // Refresh batch list
+      await fetchBatches();
+    } catch (err: any) {
+      console.error('Error during OCR batch ingest:', err);
+      setOcrIngestStatus({
+        success: false,
+        message: err.response?.data?.error || 'Failed to submit verified OCR record',
+      });
+    } finally {
+      setOcrSubmitting(false);
+    }
+  };
 
   // Historical Baseline Profiling Metrics
   const historicalProfile = {
@@ -143,14 +345,14 @@ export const IngestionPage: React.FC = () => {
         <div>
           <div className="flex items-center gap-2">
             <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wider bg-teal-50 text-teal-700 border border-teal-200 dark:bg-teal-950/40 dark:text-teal-300 dark:border-teal-800">
-              Module 1 & 2 • Standalone Data Layer
+              Module 1 & 2 • Dual Ingestion & Verification
             </span>
           </div>
           <h1 className="text-2xl font-extrabold text-slate-800 dark:text-white tracking-tight mt-1">
-            Survey Data Ingestion & Historical Profiling
+            Survey Data Ingestion & OCR Studio
           </h1>
           <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-0.5">
-            Ingest current survey datasets (CSV/Excel) and profile historical PLFS baselines to calibrate multi-layer anomaly detection
+            Ingest digital datasets (CSV/CAPI), scan & verify handwritten paper survey forms, and calibrate historical baseline models
           </p>
         </div>
 
@@ -170,7 +372,7 @@ export const IngestionPage: React.FC = () => {
       </div>
 
       {/* Tabs */}
-      <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-2">
+      <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-2">
         <button
           onClick={() => setActiveTab('current')}
           className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
@@ -182,6 +384,17 @@ export const IngestionPage: React.FC = () => {
           1. Current Survey Batches ({batches.length})
         </button>
         <button
+          onClick={() => setActiveTab('ocr')}
+          className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+            activeTab === 'ocr'
+              ? 'bg-amber-600 text-white shadow-xs'
+              : 'text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/30'
+          }`}
+        >
+          <Scan className="w-3.5 h-3.5" />
+          <span>2. 📝 Handwritten / Paper Survey AI OCR Studio</span>
+        </button>
+        <button
           onClick={() => setActiveTab('historical')}
           className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
             activeTab === 'historical'
@@ -189,13 +402,387 @@ export const IngestionPage: React.FC = () => {
               : 'text-slate-500 hover:text-slate-800 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
           }`}
         >
-          2. Historical Profiling & ML Baseline
+          3. Historical Profiling & ML Baseline
         </button>
       </div>
 
-      {activeTab === 'historical' ? (
+      {activeTab === 'ocr' ? (
+        /* OCR & Handwritten Survey Verification Studio */
+        <div className="space-y-6 animate-in fade-in">
+          {/* Top Banner Explaining the 2-Stage Pipeline */}
+          <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-teal-500/10 border border-amber-300 dark:border-amber-700/50 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <div className="p-2.5 rounded-xl bg-amber-500/20 text-amber-600 dark:text-amber-400 shrink-0">
+                <FileText className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-bold text-sm text-slate-800 dark:text-white">
+                  Handwritten Paper Schedule Ingestion Workflow
+                </h3>
+                <p className="text-xs text-slate-600 dark:text-slate-300 mt-0.5 max-w-3xl">
+                  <strong className="text-amber-700 dark:text-amber-300">Architecture Flow:</strong> Handwritten paper survey scans are <em>not</em> fed directly into the ML validation model. First, our <strong>AI OCR Vision Engine</strong> recognizes digits and fields. Next, a human survey officer performs <strong>quick inline verification</strong>. Once signed off, the digitized record enters the exact same <strong>4-Tier ISDVP Quality Validation Pipeline</strong> as standard CSV/CAPI data.
+                </p>
+              </div>
+            </div>
+
+            <button
+              onClick={handleSimulateScan}
+              disabled={ocrScanning}
+              className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-xs transition-all shrink-0"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${ocrScanning ? 'animate-spin' : ''}`} />
+              <span>{ocrScanning ? 'Scanning Contours...' : 'Re-Run OCR Scanner'}</span>
+            </button>
+          </div>
+
+          {/* Sample Schedules Selector & Image Uploader */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            {ocrPresets.map((preset) => (
+              <div
+                key={preset.id}
+                onClick={() => handleSelectPreset(preset.id)}
+                className={`p-4 rounded-xl border cursor-pointer transition-all ${
+                  selectedPresetId === preset.id
+                    ? 'bg-amber-50/50 dark:bg-amber-950/20 border-amber-500 shadow-xs ring-1 ring-amber-500'
+                    : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-amber-300'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                    {preset.surveyName}
+                  </span>
+                  <span className="text-[11px] text-amber-700 dark:text-amber-400 font-bold font-mono">
+                    {preset.sourceType}
+                  </span>
+                </div>
+                <h4 className="font-bold text-xs text-slate-800 dark:text-white mt-2">
+                  {preset.title}
+                </h4>
+                <p className="text-[11px] text-slate-500 mt-1 line-clamp-2">
+                  {preset.description}
+                </p>
+                <div className="mt-3 pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-[10px]">
+                  <span className="text-slate-400">Target Expected Result:</span>
+                  <span className="font-semibold text-slate-700 dark:text-slate-300">{preset.expectedResult.slice(0, 22)}...</span>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Side-by-Side OCR Visualizer & Human Verification Desk */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            {/* Left Column: Simulated Scanned Paper Document with Bounding Boxes (5 Cols) */}
+            <div className="lg:col-span-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 shadow-xs flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+                  <div className="flex items-center gap-2">
+                    <Camera className="w-4 h-4 text-amber-600" />
+                    <span className="font-bold text-xs text-slate-800 dark:text-white">
+                      Scanned Survey Schedule Image (Source)
+                    </span>
+                  </div>
+                  <label className="cursor-pointer inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-semibold text-[11px] transition-all">
+                    <UploadCloud className="w-3.5 h-3.5" />
+                    <span>Upload Image</span>
+                    <input type="file" accept="image/*" onChange={handleCustomFileUpload} className="hidden" />
+                  </label>
+                </div>
+
+                {/* Progress bar during scan */}
+                {ocrScanning && (
+                  <div className="mt-3">
+                    <div className="flex justify-between text-[11px] text-amber-600 font-bold mb-1">
+                      <span>Analyzing handwriting contours & extracting OCR text...</span>
+                      <span>{ocrProgress}%</span>
+                    </div>
+                    <div className="h-1.5 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-amber-500 transition-all duration-300"
+                        style={{ width: `${ocrProgress}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Simulated Paper Survey Sheet Preview */}
+                <div className="mt-4 p-4 rounded-xl bg-amber-50/40 dark:bg-slate-950 border border-amber-200 dark:border-slate-800 font-mono relative overflow-hidden text-xs">
+                  {/* Paper Header */}
+                  <div className="border-b border-dashed border-amber-300 dark:border-slate-700 pb-2 mb-3 text-center">
+                    <span className="font-bold uppercase tracking-widest text-[10px] text-slate-500 block">
+                      GOVERNMENT OF INDIA • NATIONAL STATISTICAL OFFICE
+                    </span>
+                    <span className="font-extrabold text-[12px] text-slate-800 dark:text-amber-400 block mt-0.5">
+                      {activePreset.title}
+                    </span>
+                    <span className="text-[10px] text-slate-400">
+                      File Source: {customImageName || activePreset.rawImageName}
+                    </span>
+                  </div>
+
+                  {/* Scanned Table with Glowing Bounding Boxes */}
+                  <div className="space-y-2.5 text-[11px]">
+                    <div className="p-2 rounded bg-white dark:bg-slate-900 border border-amber-400/80 shadow-xs relative">
+                      <span className="absolute -top-2 right-2 px-1.5 py-0.2 rounded text-[9px] font-bold bg-amber-500 text-white">
+                        OCR Box: State / District
+                      </span>
+                      <div className="flex justify-between">
+                        <span className="text-slate-500">Item 1: State / District Code:</span>
+                        <span className="font-bold text-slate-900 dark:text-white bg-amber-100 dark:bg-amber-950/60 px-2 py-0.5 rounded border border-amber-300 dark:border-amber-700">
+                          {editableFields.stateCode} / {editableFields.districtCode}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="p-2 rounded bg-white dark:bg-slate-900 border border-amber-400/80 shadow-xs relative">
+                      <span className="absolute -top-2 right-2 px-1.5 py-0.2 rounded text-[9px] font-bold bg-amber-500 text-white">
+                        OCR Box: Household Members
+                      </span>
+                      <div className="flex justify-between">
+                        <span className="text-slate-500">Item 2: Household Size (Persons):</span>
+                        <span className="font-bold text-slate-900 dark:text-white bg-amber-100 dark:bg-amber-950/60 px-2 py-0.5 rounded border border-amber-300 dark:border-amber-700">
+                          {editableFields.hhSize} persons
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className={`p-2 rounded bg-white dark:bg-slate-900 border shadow-xs relative ${
+                      confidences.hceTot < 85 ? 'border-red-400 bg-red-50/20' : 'border-amber-400/80'
+                    }`}>
+                      <span className={`absolute -top-2 right-2 px-1.5 py-0.2 rounded text-[9px] font-bold ${
+                        confidences.hceTot < 85 ? 'bg-red-500 text-white' : 'bg-amber-500 text-white'
+                      }`}>
+                        {confidences.hceTot < 85 ? 'Low OCR Confidence: Exp' : 'OCR Box: Expenditure'}
+                      </span>
+                      <div className="flex justify-between">
+                        <span className="text-slate-500">Item 3: Monthly Consumer Exp (HCE):</span>
+                        <span className="font-bold text-emerald-700 dark:text-emerald-400 bg-amber-100 dark:bg-amber-950/60 px-2 py-0.5 rounded border border-amber-300 dark:border-amber-700">
+                          ₹{editableFields.hceTot?.toLocaleString('en-IN')}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="p-2 rounded bg-white dark:bg-slate-900 border border-amber-400/80 shadow-xs relative">
+                      <span className="absolute -top-2 right-2 px-1.5 py-0.2 rounded text-[9px] font-bold bg-amber-500 text-white">
+                        OCR Box: Total Income
+                      </span>
+                      <div className="flex justify-between">
+                        <span className="text-slate-500">Item 4: Total Declared Income:</span>
+                        <span className="font-bold text-slate-900 dark:text-slate-100 bg-amber-100 dark:bg-amber-950/60 px-2 py-0.5 rounded border border-amber-300 dark:border-amber-700">
+                          ₹{editableFields.incTot?.toLocaleString('en-IN')}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="p-2 rounded bg-white dark:bg-slate-900 border border-amber-400/80 shadow-xs relative">
+                      <span className="absolute -top-2 right-2 px-1.5 py-0.2 rounded text-[9px] font-bold bg-amber-500 text-white">
+                        OCR Box: Field Enumerator
+                      </span>
+                      <div className="flex justify-between">
+                        <span className="text-slate-500">Item 5: Enumerator Badge ID:</span>
+                        <span className="font-bold text-slate-900 dark:text-slate-100 bg-amber-100 dark:bg-amber-950/60 px-2 py-0.5 rounded border border-amber-300 dark:border-amber-700">
+                          {editableFields.enumeratorId}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-4 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 text-[11px] text-slate-600 dark:text-slate-300">
+                <span className="font-bold block text-slate-800 dark:text-white">Field Inspection Note:</span>
+                {activePreset.scanNote}
+              </div>
+            </div>
+
+            {/* Right Column: Human-in-the-Loop Inline Verification Desk (7 Cols) */}
+            <div className="lg:col-span-7 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 shadow-xs flex flex-col justify-between space-y-4">
+              <div>
+                <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+                  <div className="flex items-center gap-2">
+                    <CheckSquare className="w-4 h-4 text-emerald-600" />
+                    <span className="font-bold text-xs text-slate-800 dark:text-white">
+                      Human-in-the-Loop Digitization & Verification Desk
+                    </span>
+                  </div>
+                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800">
+                    Status: Reviewing OCR Extraction
+                  </span>
+                </div>
+
+                <p className="text-xs text-slate-500 mt-2">
+                  Review extracted fields and OCR confidence scores. You can modify any ambiguous digit before approving entry into the live validation pipeline.
+                </p>
+
+                {/* Editable Fields Grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 mt-4">
+                  <div>
+                    <div className="flex items-center justify-between text-[11px] mb-1">
+                      <label className="font-semibold text-slate-700 dark:text-slate-300">State Code</label>
+                      <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-400">
+                        {confidences.stateCode}% OCR Conf
+                      </span>
+                    </div>
+                    <input
+                      type="text"
+                      value={editableFields.stateCode}
+                      onChange={(e) => setEditableFields({ ...editableFields, stateCode: e.target.value })}
+                      className="w-full py-1.5 px-3 text-xs rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between text-[11px] mb-1">
+                      <label className="font-semibold text-slate-700 dark:text-slate-300">District Code</label>
+                      <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-400">
+                        {confidences.districtCode}% OCR Conf
+                      </span>
+                    </div>
+                    <input
+                      type="text"
+                      value={editableFields.districtCode}
+                      onChange={(e) => setEditableFields({ ...editableFields, districtCode: e.target.value })}
+                      className="w-full py-1.5 px-3 text-xs rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between text-[11px] mb-1">
+                      <label className="font-semibold text-slate-700 dark:text-slate-300">Household Size</label>
+                      <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-400">
+                        {confidences.hhSize}% OCR Conf
+                      </span>
+                    </div>
+                    <input
+                      type="number"
+                      value={editableFields.hhSize}
+                      onChange={(e) => setEditableFields({ ...editableFields, hhSize: Number(e.target.value) })}
+                      className="w-full py-1.5 px-3 text-xs rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between text-[11px] mb-1">
+                      <label className="font-semibold text-slate-700 dark:text-slate-300">Sector</label>
+                      <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-400">
+                        {confidences.sector}% OCR Conf
+                      </span>
+                    </div>
+                    <select
+                      value={editableFields.sector}
+                      onChange={(e) => setEditableFields({ ...editableFields, sector: e.target.value as any })}
+                      className="w-full py-1.5 px-3 text-xs rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 capitalize"
+                    >
+                      <option value="rural">Rural</option>
+                      <option value="urban">Urban</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between text-[11px] mb-1">
+                      <label className="font-semibold text-slate-700 dark:text-slate-300">Monthly Expenditure (HCE ₹)</label>
+                      <span className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
+                        confidences.hceTot < 85
+                          ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-400'
+                          : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-400'
+                      }`}>
+                        {confidences.hceTot}% OCR Conf
+                      </span>
+                    </div>
+                    <input
+                      type="number"
+                      value={editableFields.hceTot}
+                      onChange={(e) => setEditableFields({ ...editableFields, hceTot: Number(e.target.value) })}
+                      className="w-full py-1.5 px-3 text-xs rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-mono text-emerald-700 dark:text-emerald-400 font-bold"
+                    />
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between text-[11px] mb-1">
+                      <label className="font-semibold text-slate-700 dark:text-slate-300">Monthly Income (INC ₹)</label>
+                      <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-400">
+                        {confidences.incTot}% OCR Conf
+                      </span>
+                    </div>
+                    <input
+                      type="number"
+                      value={editableFields.incTot}
+                      onChange={(e) => setEditableFields({ ...editableFields, incTot: Number(e.target.value) })}
+                      className="w-full py-1.5 px-3 text-xs rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-mono font-bold"
+                    />
+                  </div>
+                </div>
+
+                {/* Supervisor Verification Sign-off */}
+                <div className="mt-4 p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700/60 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="human-verify-check"
+                      checked={humanVerified}
+                      onChange={(e) => setHumanVerified(e.target.checked)}
+                      className="w-4 h-4 text-emerald-600 rounded focus:ring-emerald-500"
+                    />
+                    <label htmlFor="human-verify-check" className="text-xs font-bold text-slate-800 dark:text-white cursor-pointer">
+                      I confirm human verification of handwriting digits against the source schedule
+                    </label>
+                  </div>
+                  <input
+                    type="text"
+                    value={verifierNotes}
+                    onChange={(e) => setVerifierNotes(e.target.value)}
+                    placeholder="Verification notes or auditor remarks..."
+                    className="w-full py-1.5 px-3 text-xs rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300"
+                  />
+                </div>
+              </div>
+
+              {/* Status Alert Banner if Ingested */}
+              {ocrIngestStatus && (
+                <div className={`p-4 rounded-xl border flex items-center justify-between gap-3 text-xs ${
+                  ocrIngestStatus.success
+                    ? 'bg-emerald-50 text-emerald-800 border-emerald-300 dark:bg-emerald-950/30 dark:text-emerald-300 dark:border-emerald-800'
+                    : 'bg-red-50 text-red-800 border-red-300 dark:bg-red-950/30 dark:text-red-300 dark:border-red-800'
+                }`}>
+                  <div className="flex items-center gap-2">
+                    {ocrIngestStatus.success ? <Check className="w-4 h-4 text-emerald-600" /> : <AlertCircle className="w-4 h-4 text-red-600" />}
+                    <span>{ocrIngestStatus.message}</span>
+                  </div>
+                  {ocrIngestStatus.flagsCount !== undefined && (
+                    <Link
+                      to="/app/flags"
+                      className="inline-flex items-center gap-1 font-bold underline hover:no-underline shrink-0"
+                    >
+                      <span>View {ocrIngestStatus.flagsCount} Flags in Queue</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </Link>
+                  )}
+                </div>
+              )}
+
+              {/* Final Ingest Action CTA */}
+              <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                <div className="text-[11px] text-slate-500">
+                  Target Survey: <strong className="text-slate-700 dark:text-slate-300">{activePreset.surveyName} ({activePreset.quarter})</strong>
+                </div>
+
+                <button
+                  type="button"
+                  disabled={!humanVerified || ocrSubmitting}
+                  onClick={handleOcrIngestToPipeline}
+                  id="ingest-ocr-pipeline-btn"
+                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition-all disabled:opacity-50"
+                >
+                  <ShieldCheck className="w-4 h-4" />
+                  <span>{ocrSubmitting ? 'Ingesting to Pipeline...' : 'Approve & Ingest into Multi-Tier Pipeline'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : activeTab === 'historical' ? (
         /* Historical Baseline Profiling View */
         <div className="space-y-6 animate-in fade-in">
+
           {/* Baseline Summary Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs">
